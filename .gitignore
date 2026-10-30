@@ -1,0 +1,29 @@
+# --- Secrets and local config ---
+.env
+*.local.toml
+config.local.*
+token*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+
+# --- Android / Kotlin ---
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.aab
+.idea/
+
+# --- OS ---
+AGENTS.md
+.DS_Store
