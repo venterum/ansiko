@@ -22,12 +22,40 @@ class Widget:
     height: int
     timeout: float
     directory: Path
+    description: str = ""
+
+    @property
+    def id(self) -> str:
+        """The directory name used by boards and the web UI."""
+        return self.directory.name
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "command": self.command,
+            "interval": self.interval,
+            "width": self.width,
+            "height": self.height,
+            "timeout": self.timeout,
+            "path": str(self.directory),
+        }
 
 
 def _text(data: dict, key: str, default: str | None = None) -> str:
     value = data.get(key, default)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"widget: {key!r} must be a non-empty string")
+    return value.strip()
+
+
+def _description(data: dict) -> str:
+    value = data.get("description", "")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError("widget: 'description' must be a string")
     return value.strip()
 
 
@@ -66,7 +94,26 @@ def load_widget(directory: Path) -> Widget:
         height=_integer(data, "height", 5, 1),
         timeout=_number(data, "timeout", 5.0, 0.1),
         directory=directory,
+        description=_description(data),
     )
+
+
+def scan_widgets(directory: Path) -> tuple[list[Widget], list[dict]]:
+    """Load every widget directory, keeping bad manifests out of the catalog."""
+    widgets: list[Widget] = []
+    errors: list[dict] = []
+    if not directory.is_dir():
+        return widgets, errors
+    for child in sorted(directory.iterdir(), key=lambda p: p.name.lower()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if not (child / MANIFEST).is_file():
+            continue
+        try:
+            widgets.append(load_widget(child))
+        except (OSError, TypeError, ValueError) as e:
+            errors.append({"id": child.name, "path": str(child), "error": str(e)})
+    return widgets, errors
 
 
 def _argv(widget: Widget) -> list[str]:

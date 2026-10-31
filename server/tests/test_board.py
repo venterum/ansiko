@@ -6,9 +6,24 @@ from pathlib import Path
 from aiohttp import WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
 
-from ansiko.board import Board, Cell, compose, load_board, place
+from ansiko.board import (
+    Board,
+    Cell,
+    board_to_model,
+    compose,
+    create_board,
+    delete_board,
+    duplicate_board,
+    load_board,
+    parse_board_source,
+    place,
+    read_board_source,
+    rename_board,
+    source_from_model,
+    summarize_board,
+)
 from ansiko.daemon import create_app
-from ansiko.widgets import Widget, load_widget, run_widget
+from ansiko.widgets import Widget, load_widget, run_widget, scan_widgets
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -190,7 +205,11 @@ async def test_load_board_and_push_endpoint(tmp_path):
     async with TestClient(TestServer(app)) as client:
         response = await client.post("/api/push", json={"board": "demo"}, headers=AUTH)
         assert response.status == 200
-        assert (await response.json())["board"] == {"active": True, "name": "demo"}
+        board_status = (await response.json())["board"]
+        assert board_status["active"] is True
+        assert board_status["name"] == "demo"
+        assert board_status["title"] == "demo"
+        assert board_status["errors"] == []
 
         ws = await client.ws_connect("/ws/display")
         await ws.send_json({"type": "hello", "token": TOKEN, "cols": 40, "rows": 10})
@@ -205,3 +224,105 @@ async def test_load_board_and_push_endpoint(tmp_path):
                 break
         assert b"pushed-ok" in frame
         await ws.close()
+
+
+def test_board_model_and_source_roundtrip(tmp_path):
+    widgets_dir = tmp_path / "widgets"
+    write_widget(widgets_dir / "clock", "printf 'clock-ok\\n'")
+    source = (
+        'name = "Desk"\n'
+        "frame = true\n"
+        "[[cells]]\n"
+        'widget = "clock"\n'
+        "x = 0.0\ny = 0.0\nwidth = 0.5\nheight = 1.0\nframe = false\n"
+        "[[cells]]\n"
+        'widget = "clock"\n'
+        "x = 0.5\ny = 0.0\nwidth = 0.5\nheight = 1.0\n"
+    )
+    spec = parse_board_source(source, "desk", widgets_dir)
+    model = board_to_model(spec, "desk")
+    assert model["mode"] == "cells"
+    assert model["name"] == "Desk"
+    assert model["cells"][0]["frame_override"] is False
+    assert model["cells"][1]["frame_override"] is None
+    dumped = source_from_model(model)
+    spec2 = parse_board_source(dumped, "desk", widgets_dir)
+    assert spec2.name == "Desk"
+    assert spec2.regions is not None
+    assert spec2.regions[0].frame is False
+    assert spec2.regions[1].frame is True
+
+
+def test_create_duplicate_rename_delete_board(tmp_path):
+    widgets_dir = tmp_path / "widgets"
+    write_widget(widgets_dir / "clock", "printf 'clock\\n'")
+    write_widget(widgets_dir / "calendar", "printf 'calendar\\n'")
+    boards_dir = tmp_path / "boards"
+
+    create_board(
+        "new",
+        boards_dir,
+        widgets_dir,
+        template="columns",
+        widget_names=["clock", "calendar"],
+        frame=True,
+    )
+    source = read_board_source("new", boards_dir)
+    assert "[[cells]]" in source
+    assert 'widget = "clock"' in source
+    assert "frame = false" not in source
+    summary = summarize_board("new", boards_dir, widgets_dir)
+    assert summary["valid"] is True
+    assert summary["mode"] == "cells"
+    assert summary["widget_count"] == 2
+
+    duplicate_board("new", "copy", boards_dir, widgets_dir)
+    assert summarize_board("copy", boards_dir, widgets_dir)["valid"] is True
+    rename_board("copy", "renamed", boards_dir)
+    assert summarize_board("renamed", boards_dir, widgets_dir)["valid"] is True
+    delete_board("renamed", boards_dir)
+    assert not (boards_dir / "renamed" / "board.toml").exists()
+
+
+def test_create_board_requires_widgets(tmp_path):
+    boards_dir = tmp_path / "boards"
+    try:
+        create_board("empty", boards_dir, tmp_path / "widgets")
+    except ValueError as exc:
+        assert "no widgets" in str(exc)
+    else:
+        raise AssertionError("create_board should reject an empty widget set")
+
+
+def test_scan_widgets_reports_bad_manifest(tmp_path):
+    widgets_dir = tmp_path / "widgets"
+    write_widget(widgets_dir / "clock", "printf 'ok\\n'")
+    bad = widgets_dir / "bad"
+    bad.mkdir()
+    (bad / "widget.toml").write_text('name = "bad"\n')
+    widgets, errors = scan_widgets(widgets_dir)
+    assert [widget.id for widget in widgets] == ["clock"]
+    assert errors and errors[0]["id"] == "bad"
+
+
+async def test_board_reports_widget_errors(tmp_path):
+    widgets_dir = tmp_path / "widgets"
+    write_widget(widgets_dir / "bad", "echo boom >&2\nexit 2\n", interval=0.1)
+    frames: list[bytes] = []
+    board = Board(
+        "demo",
+        [load_widget(widgets_dir / "bad")],
+        cols=40,
+        rows=10,
+        emit=frames.append,
+    )
+    board.start()
+    try:
+        for _ in range(60):
+            if board.errors():
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        board.stop()
+    assert board.errors()
+    assert board.errors()[0]["widget"] == "bad"

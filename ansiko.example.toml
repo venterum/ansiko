@@ -1,5 +1,6 @@
 # Copy to ansiko.local.toml (ignored by git) and edit.
 # For the phone, host must be the computer's LAN address.
+# The web dashboard is served at http://<host>:<port>/.
 host = "127.0.0.1"
 port = 8765
 token = "replace-with-a-long-random-token"

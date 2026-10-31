@@ -1,0 +1,9 @@
+name = "Focus"
+frame = false
+
+[[cells]]
+widget = "clock"
+x = 0.0
+y = 0.0
+width = 1.0
+height = 1.0

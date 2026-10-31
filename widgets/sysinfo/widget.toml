@@ -1,0 +1,7 @@
+name        = "sysinfo"
+description = "Host, uptime, load, memory and disk"
+command     = "./run.py"
+interval    = 5
+width       = 38
+height      = 8
+timeout     = 3

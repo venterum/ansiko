@@ -1,0 +1,30 @@
+name = "Desk"
+frame = true
+
+[[cells]]
+widget = "clock"
+x = 0.0
+y = 0.0
+width = 0.55
+height = 0.3
+
+[[cells]]
+widget = "sysinfo"
+x = 0.0
+y = 0.3
+width = 0.55
+height = 0.4
+
+[[cells]]
+widget = "banner"
+x = 0.0
+y = 0.7
+width = 0.55
+height = 0.3
+
+[[cells]]
+widget = "calendar"
+x = 0.55
+y = 0.0
+width = 0.45
+height = 0.62

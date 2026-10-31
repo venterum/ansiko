@@ -1,0 +1,7 @@
+name        = "calendar"
+description = "Current month with today highlighted"
+command     = "./run.py"
+interval    = 60
+width       = 24
+height      = 9
+timeout     = 2

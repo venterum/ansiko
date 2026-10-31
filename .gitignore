@@ -25,14 +25,9 @@ android/local.properties
 *.aab
 .idea/
 
-# --- Local test widgets/boards (not bundled yet) ---
-/widgets/clock/
-/widgets/date/
-/widgets/ttyclock/
-/widgets/weather/
-/widgets/calendar/
-/boards/demo/
-/boards/default/
+# --- Local-only widgets/boards ---
+/widgets/local/
+/boards/local/
 server/--token
 
 # --- OS ---

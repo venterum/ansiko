@@ -1,4 +1,4 @@
-"""Board layout and frame composition.
+"""Board layout, validation, persistence, and frame composition.
 
 A board either lists widget directory names (automatic packing) or explicit
 cells with fractional coordinates for a fixed composition:
@@ -17,18 +17,23 @@ cells with fractional coordinates for a fixed composition:
 from __future__ import annotations
 
 import asyncio
+import math
+import os
 import re
+import shutil
+import tempfile
 import tomllib
 import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .widgets import Widget, load_widget, run_widget
+from .widgets import Widget, load_widget, run_widget, scan_widgets
 
 BOARD_MANIFEST = "board.toml"
 BORDER = "\x1b[36m"
 RESET = "\x1b[0m"
+TEMPLATES = ("auto", "single", "columns", "grid")
 
 
 @dataclass(frozen=True)
@@ -38,6 +43,7 @@ class Region:
     width: float
     height: float
     frame: bool
+    frame_override: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -103,8 +109,7 @@ def place_regions(
         x1 = max(x0 + 1, round((region.x + region.width) * cols))
         y1 = max(y0 + 1, round((region.y + region.height) * rows))
         cell.x, cell.y = x0, y0
-        cell.width = x1 - x0
-        cell.height = y1 - y0
+        cell.width, cell.height = x1 - x0, y1 - y0
         cell.frame = region.frame
 
 
@@ -251,11 +256,12 @@ def _board_data(data: object, name: str, widgets_dir: Path) -> BoardSpec:
                 raise ValueError("board cell: width and height must be positive")
             if x + width > 1.0001 or y + height > 1.0001:
                 raise ValueError("board cell: cell extends beyond the display")
-            cell_frame = entry.get("frame", frame)
-            if not isinstance(cell_frame, bool):
+            overridden = entry.get("frame")
+            if overridden is not None and not isinstance(overridden, bool):
                 raise TypeError("board cell: 'frame' must be a boolean")
+            cell_frame = frame if overridden is None else overridden
             widgets.append(load_widget(widgets_dir / safe_name(widget_name)))
-            regions.append(Region(x, y, width, height, cell_frame))
+            regions.append(Region(x, y, width, height, cell_frame, overridden))
         return BoardSpec(title.strip(), widgets, regions, frame)
 
     names = data.get("widgets")
@@ -288,12 +294,170 @@ def parse_board_source(text: str, name: str, widgets_dir: Path) -> BoardSpec:
     return _board_data(data, name, widgets_dir)
 
 
+def board_to_model(spec: BoardSpec, folder: str | None = None) -> dict:
+    model: dict = {
+        "name": spec.name,
+        "folder": folder,
+        "frame": spec.frame,
+        "mode": "auto" if spec.regions is None else "cells",
+    }
+    if spec.regions is None:
+        model["widgets"] = [widget.id for widget in spec.widgets]
+        model["cells"] = []
+    else:
+        model["widgets"] = []
+        model["cells"] = [
+            {
+                "widget": widget.id,
+                "x": region.x,
+                "y": region.y,
+                "width": region.width,
+                "height": region.height,
+                "frame": region.frame,
+                "frame_override": region.frame_override,
+            }
+            for widget, region in zip(spec.widgets, spec.regions, strict=True)
+        ]
+    return model
+
+
+def _toml_string(value: str) -> str:
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
+def source_from_model(model: dict) -> str:
+    """Serialize a board model produced by the web editor or templates."""
+    title = model.get("name")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("board: 'name' must be a non-empty string")
+    frame = model.get("frame", False)
+    if not isinstance(frame, bool):
+        raise TypeError("board: 'frame' must be a boolean")
+    mode = model.get("mode", "cells")
+    if mode not in ("auto", "cells"):
+        raise ValueError("board: 'mode' must be 'auto' or 'cells'")
+
+    lines = [
+        f"name = {_toml_string(title.strip())}",
+        f"frame = {'true' if frame else 'false'}",
+    ]
+    if mode == "auto":
+        widgets = model.get("widgets")
+        if (
+            not isinstance(widgets, list)
+            or not widgets
+            or not all(isinstance(item, str) and item for item in widgets)
+        ):
+            raise ValueError("board: 'widgets' must be a non-empty list of names")
+        items = ", ".join(_toml_string(item) for item in widgets)
+        lines.append(f"widgets = [{items}]")
+        return "\n".join(lines) + "\n"
+
+    cells = model.get("cells")
+    if not isinstance(cells, list) or not cells:
+        raise ValueError("board: 'cells' must be a non-empty list")
+    for cell in cells:
+        if not isinstance(cell, dict):
+            raise TypeError("board: each cell must be a table")
+        widget = cell.get("widget")
+        if not isinstance(widget, str) or not widget:
+            raise ValueError("board cell: missing 'widget'")
+        x, y, width, height = (
+            _fraction(cell, key) for key in ("x", "y", "width", "height")
+        )
+        if width <= 0 or height <= 0:
+            raise ValueError("board cell: width and height must be positive")
+        lines.extend(
+            [
+                "",
+                "[[cells]]",
+                f"widget = {_toml_string(widget)}",
+                f"x = {x:g}",
+                f"y = {y:g}",
+                f"width = {width:g}",
+                f"height = {height:g}",
+            ]
+        )
+        cell_frame = cell.get("frame")
+        if isinstance(cell_frame, bool) and cell_frame != frame:
+            lines.append(f"frame = {'true' if cell_frame else 'false'}")
+    return "\n".join(lines) + "\n"
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", text=True)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def save_board_source(name: str, text: str, boards_dir: Path, widgets_dir: Path) -> str:
+    safe_name(name)
+    path = boards_dir / name / BOARD_MANIFEST
+    if not path.is_file():
+        raise FileNotFoundError(f"board not found: {name}")
+    spec = parse_board_source(text, name, widgets_dir)
+    _write_atomic(path, text)
+    return spec.name
+
+
 def list_boards(boards_dir: Path) -> list[str]:
     if not boards_dir.is_dir():
         return []
     return sorted(
         path.name for path in boards_dir.iterdir() if (path / BOARD_MANIFEST).is_file()
     )
+
+
+def summarize_board(name: str, boards_dir: Path, widgets_dir: Path) -> dict:
+    path = boards_dir / name / BOARD_MANIFEST
+    summary: dict = {
+        "name": name,
+        "title": name,
+        "frame": False,
+        "mode": None,
+        "widget_count": 0,
+        "valid": False,
+        "error": None,
+        "updated": path.stat().st_mtime if path.is_file() else None,
+    }
+    try:
+        spec = load_board(name, boards_dir, widgets_dir)
+    except (OSError, TypeError, ValueError) as e:
+        summary["error"] = str(e)
+        return summary
+    summary.update(
+        {
+            "title": spec.name,
+            "frame": spec.frame,
+            "mode": "auto" if spec.regions is None else "cells",
+            "widget_count": len(spec.widgets),
+            "valid": True,
+        }
+    )
+    return summary
+
+
+def list_board_summaries(boards_dir: Path, widgets_dir: Path) -> list[dict]:
+    return [
+        summarize_board(name, boards_dir, widgets_dir)
+        for name in list_boards(boards_dir)
+    ]
 
 
 def read_board_source(name: str, boards_dir: Path) -> str:
@@ -304,23 +468,122 @@ def read_board_source(name: str, boards_dir: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def save_board_source(name: str, text: str, boards_dir: Path, widgets_dir: Path) -> str:
-    safe_name(name)
-    path = boards_dir / name / BOARD_MANIFEST
-    if not path.is_file():
-        raise FileNotFoundError(f"board not found: {name}")
-    spec = parse_board_source(text, name, widgets_dir)
-    path.write_text(text, encoding="utf-8")
-    return spec.name
+def _template_cells(
+    names: Sequence[str], template: str
+) -> tuple[list[dict] | None, list[str]]:
+    if template == "auto":
+        return None, list(names)
+    if template == "single":
+        return None, list(names[:1])
+    if template == "columns":
+        width = 1.0 / len(names)
+        return [
+            {
+                "widget": name,
+                "x": index * width,
+                "y": 0.0,
+                "width": width,
+                "height": 1.0,
+            }
+            for index, name in enumerate(names)
+        ], []
+    if template == "grid":
+        columns = max(1, math.ceil(math.sqrt(len(names))))
+        rows = max(1, math.ceil(len(names) / columns))
+        width, height = 1.0 / columns, 1.0 / rows
+        return [
+            {
+                "widget": name,
+                "x": (index % columns) * width,
+                "y": (index // columns) * height,
+                "width": width,
+                "height": height,
+            }
+            for index, name in enumerate(names)
+        ], []
+    raise ValueError(f"unknown board template: {template!r}")
 
 
-def create_board(name: str, boards_dir: Path) -> None:
+def create_board(
+    name: str,
+    boards_dir: Path,
+    widgets_dir: Path | None = None,
+    *,
+    template: str = "auto",
+    widget_names: Sequence[str] | None = None,
+    frame: bool = False,
+) -> None:
     safe_name(name)
-    path = boards_dir / name / BOARD_MANIFEST
+    if template not in TEMPLATES:
+        raise ValueError(f"unknown board template: {template!r}")
+    path = boards_dir / name
     if path.exists():
         raise FileExistsError(f"board already exists: {name}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'name = "{name}"\nwidgets = ["clock"]\n', encoding="utf-8")
+
+    available: list[str] = []
+    if widgets_dir is not None:
+        widgets, _ = scan_widgets(widgets_dir)
+        available = [widget.id for widget in widgets]
+
+    names = list(widget_names or [])
+    if names:
+        for widget_name in names:
+            safe_name(widget_name)
+            if widgets_dir is not None:
+                load_widget(widgets_dir / widget_name)
+    elif widgets_dir is not None:
+        names = available[:4]
+    if not names:
+        raise ValueError("no widgets available; add a widget directory first")
+    if template == "single":
+        names = names[:1]
+    if not names:
+        raise ValueError("no widgets selected")
+
+    cells, widgets = _template_cells(names, template)
+    model = {
+        "name": name,
+        "frame": frame,
+        "mode": "auto" if cells is None else "cells",
+        "widgets": widgets,
+        "cells": cells or [],
+    }
+    source = source_from_model(model)
+    _write_atomic(path / BOARD_MANIFEST, source)
+
+
+def delete_board(name: str, boards_dir: Path) -> None:
+    safe_name(name)
+    path = boards_dir / name
+    if not (path / BOARD_MANIFEST).is_file():
+        raise FileNotFoundError(f"board not found: {name}")
+    shutil.rmtree(path)
+
+
+def rename_board(name: str, new_name: str, boards_dir: Path) -> None:
+    safe_name(name)
+    safe_name(new_name)
+    source = boards_dir / name
+    target = boards_dir / new_name
+    if not (source / BOARD_MANIFEST).is_file():
+        raise FileNotFoundError(f"board not found: {name}")
+    if target.exists():
+        raise FileExistsError(f"board already exists: {new_name}")
+    source.rename(target)
+
+
+def duplicate_board(
+    name: str, new_name: str, boards_dir: Path, widgets_dir: Path
+) -> None:
+    safe_name(name)
+    safe_name(new_name)
+    spec = load_board(name, boards_dir, widgets_dir)
+    target = boards_dir / new_name
+    if target.exists():
+        raise FileExistsError(f"board already exists: {new_name}")
+    model = board_to_model(spec, new_name)
+    model["name"] = new_name
+    _write_atomic(target / BOARD_MANIFEST, source_from_model(model))
 
 
 class Board:
@@ -378,6 +641,13 @@ class Board:
         for task in (self._render_task, *self._widget_tasks):
             if task is not None:
                 task.cancel()
+
+    def errors(self) -> list[dict]:
+        return [
+            {"widget": cell.widget.id, "message": cell.error}
+            for cell in self.cells
+            if cell.error
+        ]
 
     def set_size(self, cols: int, rows: int) -> None:
         self.cols, self.rows = cols, rows

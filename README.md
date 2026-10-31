@@ -6,8 +6,8 @@ The phone runs a tiny app that does one thing: it shows what your computer sends
 No keyboard, no logic, no state. Type on your computer, watch it appear on the phone, or
 build a wall of ASCII widgets and push it to the screen with one click.
 
-> Status: the daemon, PTY/terminal mode, Android client, board mode, web UI, and QR
-> pairing work. Widget editing and live preview are the next milestone.
+> Status: daemon, PTY/terminal mode, Android client, board mode, visual board editor,
+> live ANSI preview, widget catalog and QR pairing work.
 
 <!-- Put a photo or short video here: phone on a stand, asciiquarium + a currency widget. -->
 
@@ -28,7 +28,8 @@ ansiko run tty-clock -c
 - system stats, weather, build status, whatever a script can print
 
 Boards can pack widgets automatically or place them in explicit fractional cells with
-server-drawn frames. The web UI edits board files; widget code editing comes later.
+server-drawn frames. The web editor can drag, resize, preview and push a board without
+touching TOML; the raw source is still one click away.
 
 The phone doesn't know the difference: in both cases it receives a stream of ANSI bytes
 and draws them.
@@ -74,15 +75,24 @@ Enter the same host, port, and token. Long-press the terminal to change them.
 
 ## Web UI and pairing
 
-Open `http://<lan-ip>:8765/` on the computer and enter the token. The page shows the
-display/session state, lists boards, edits their `board.toml`, saves, and pushes them to
-the phone.
+Open `http://<lan-ip>:8765/` on the computer and enter the token. The dashboard shows
+the phone state and a board library. The visual editor has:
+
+- a palette of existing widgets;
+- drag-and-drop and eight resize handles in free layout;
+- snap to a 5% grid, collision checks, undo/redo and keyboard nudge;
+- automatic packing, equal columns, grid and vertical-stack presets;
+- a live ANSI preview of the same frames the phone receives;
+- a raw TOML tab with line/column validation;
+- save, save & push, duplicate, rename and delete.
+
+The **Widgets** page lists every manifest, shows its size/interval/timeout, runs a
+single test and can start a board with that widget. Widget scripts are not edited in the
+browser; they are normal files in `widgets/`.
 
 The same page shows a pairing QR code. In the app, long-press the terminal, then tap
 **Scan pairing QR**. The QR contains the host, port, and token, so the app fills all three
 fields. The QR is only shown after logging in; keep this page on your LAN.
-
-The web UI edits board files, not widget scripts yet.
 
 ## Widgets
 
@@ -96,12 +106,13 @@ widgets/clock/
 
 ```toml
 # widget.toml
-name     = "clock"
-command  = "./run.py"
-interval = 1      # seconds between runs
-width    = 20
-height   = 5
-timeout  = 5
+name        = "clock"
+description = "Local time"
+command     = "./run.py"
+interval    = 1      # seconds between runs
+width       = 20
+height      = 5
+timeout     = 5
 ```
 
 ```python
@@ -147,10 +158,18 @@ height = 1.0
 `frame = true` asks the server to draw a titled box around every cell. The widget gets
 the inner `ANSIKO_COLS` and `ANSIKO_ROWS`, so it does not need to draw its own border.
 
-This checkout does not bundle widgets yet; create your own under `widgets/`. See the
-`Contributing` section.
+This checkout bundles four small widgets: `clock`, `calendar`, `sysinfo` and `banner`.
+They are ordinary directories with a manifest and an executable; copy one as a starting
+point. The dashboard also has a **Widgets** catalog and a **[widget guide](docs/widgets.md)**.
 
 Tip: `figlet`, `toilet`, `rich`, and `plotext` are great for big digits, boxes, and charts.
+
+## Documentation
+
+- [Widget guide](docs/widgets.md) — manifest, environment, ANSI, errors, testing.
+- [Board format](docs/boards.md) — auto/free layouts, frames, visual editor.
+- [Web dashboard](docs/web-ui.md) — library, editor, widgets, pairing, shortcuts.
+- [Protocol](docs/protocol.md) — phone, terminal and preview WebSockets; HTTP API.
 
 ## CLI
 
@@ -175,13 +194,16 @@ pairing QR both use that token, so use a long random one, not a short PIN.
 - [x] Terminal mode CLI (`ansiko run`)
 - [x] Board mode: auto packing, explicit fractional cells, frames, scheduler
 - [x] Web UI: token login, board list/editor, push, QR pairing
-- [ ] Web editor: widget code and live preview
+- [x] Visual board editor: drag/resize, snapping, presets, undo/redo, live preview
+- [x] Widget catalog, examples and documentation
 - [ ] Extras: page rotation, burn-in protection, tap zones
 
 ## Contributing
 
 Widgets are the easiest way to contribute: add a directory under `widgets/` with a
-manifest and a script. Keep them small and dependency-free where possible.
+manifest and a script. Keep them small and dependency-free where possible. Read the
+[widget guide](docs/widgets.md) first, and test the script with `ANSIKO_COLS` and
+`ANSIKO_ROWS` set.
 
 ## License
 

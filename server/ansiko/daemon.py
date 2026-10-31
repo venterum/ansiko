@@ -4,14 +4,17 @@ Phone  -> daemon  (/ws/display):  JSON text: hello{token,cols,rows}, resize{cols
 Daemon -> phone:                  binary = raw ANSI bytes; JSON text: reset
 CLI    -> daemon  (/ws/session):  JSON text: start{argv,cwd}; binary = keystrokes
 Daemon -> CLI:                    binary = output; JSON text: size, exit{code}, error{message}
+Web UI -> daemon  (/ws/preview):  JSON text: preview{source,cols,rows}
+Daemon -> Web UI:                 binary = raw ANSI frames; JSON text: preview_ready/error
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 import secrets
-from importlib.resources import files
+import tomllib
 from pathlib import Path
 from urllib.parse import quote
 
@@ -21,19 +24,30 @@ from aiohttp import WSMsgType, web
 from . import __version__
 from .board import (
     Board,
+    board_to_model,
     create_board,
+    delete_board,
+    duplicate_board,
+    list_board_summaries,
     list_boards,
     load_board,
+    parse_board_source,
     read_board_source,
+    rename_board,
+    safe_name,
     save_board_source,
+    summarize_board,
 )
 from .config import DEFAULT_BOARDS, DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_WIDGETS
 from .session import Session
+from .widgets import load_widget, run_widget, scan_widgets
 
 MAX_DIM = 500
 MAX_BOARD_SOURCE = 64 * 1024
+MAX_PREVIEW_SOURCE = 64 * 1024
 COOKIE_NAME = "ansiko_token"
-INDEX_HTML = files("ansiko").joinpath("web/index.html").read_text(encoding="utf-8")
+WEB_DIR = Path(__file__).parent / "web"
+INDEX_HTML = (WEB_DIR / "index.html").read_text(encoding="utf-8")
 DAEMON_KEY = web.AppKey("daemon", "Daemon")
 
 
@@ -122,6 +136,7 @@ class Daemon:
         self.owner: Outbox | None = None  # the CLI connection that owns the session
         self.argv: list[str] = []
         self.board: Board | None = None
+        self.board_folder: str | None = None
 
     def check_token(self, candidate: object) -> bool:
         return isinstance(candidate, str) and secrets.compare_digest(
@@ -172,6 +187,7 @@ class Daemon:
         if self.board is not None:
             self.board.stop()
             self.board = None
+            self.board_folder = None
         session = Session(
             argv, self.cols, self.rows, self._on_output, self._on_exit, cwd=cwd
         )
@@ -205,6 +221,24 @@ class Daemon:
             self.display.send_json({"type": "reset"})
             self.display.send_bytes(idle_screen(self.cols, self.rows))
 
+    async def stop_active(self) -> None:
+        if self.session is not None:
+            self.session.stop()
+            for _ in range(20):
+                if self.session is None:
+                    break
+                await asyncio.sleep(0.05)
+        self.session = None
+        self.owner = None
+        self.argv = []
+        if self.board is not None:
+            self.board.stop()
+        self.board = None
+        self.board_folder = None
+        if self.display is not None:
+            self.display.send_json({"type": "reset"})
+            self.display.send_bytes(idle_screen(self.cols, self.rows))
+
     # --- board ---------------------------------------------------------------
 
     async def activate_board(self, name: str) -> None:
@@ -231,6 +265,7 @@ class Daemon:
             spec.regions,
             spec.frame,
         )
+        self.board_folder = name
         self.board.start()
         if self.display is not None:
             self.display.send_json({"type": "reset"})
@@ -239,6 +274,22 @@ class Daemon:
     def _emit_board(self, frame: bytes) -> None:
         if self.board is not None and self.display is not None:
             self.display.send_bytes(frame)
+
+    def note_renamed_board(self, old: str, new: str) -> None:
+        if self.board_folder == old:
+            self.board_folder = new
+            if self.board is not None:
+                self.board.name = new
+
+    def note_deleted_board(self, name: str) -> None:
+        if self.board_folder == name:
+            if self.board is not None:
+                self.board.stop()
+            self.board = None
+            self.board_folder = None
+            if self.display is not None:
+                self.display.send_json({"type": "reset"})
+                self.display.send_bytes(idle_screen(self.cols, self.rows))
 
     def status(self) -> dict:
         return {
@@ -251,7 +302,9 @@ class Daemon:
             "session": {"running": self.session is not None, "argv": self.argv},
             "board": {
                 "active": self.board is not None,
-                "name": self.board.name if self.board is not None else None,
+                "name": self.board_folder,
+                "title": self.board.name if self.board is not None else None,
+                "errors": self.board.errors() if self.board is not None else [],
             },
         }
 
@@ -275,6 +328,26 @@ def _auth_ok(request: web.Request, daemon: Daemon) -> bool:
     if scheme == "Bearer" and daemon.check_token(value):
         return True
     return daemon.check_token(request.cookies.get(COOKIE_NAME))
+
+
+def _toml_error(exc: Exception) -> dict:
+    message = str(exc)
+    line = getattr(exc, "lineno", None)
+    column = getattr(exc, "colno", None)
+    if line is None:
+        match = re.search(r"at line (\d+), column (\d+)", message)
+        if match:
+            line, column = int(match.group(1)), int(match.group(2))
+            message = re.sub(r" \(at line \d+, column \d+\)$", "", message)
+    elif line is not None:
+        message = re.sub(r" \(at line \d+, column \d+\)$", "", message)
+    return {"error": message, "line": line, "column": column}
+
+
+def _board_parse_error(exc: Exception) -> dict:
+    if isinstance(exc, tomllib.TOMLDecodeError):
+        return _toml_error(exc)
+    return {"error": str(exc), "line": None, "column": None}
 
 
 async def display_ws(request: web.Request) -> web.WebSocketResponse:
@@ -368,6 +441,80 @@ async def session_ws(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def preview_ws(request: web.Request) -> web.WebSocketResponse:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    ws = web.WebSocketResponse(heartbeat=20, max_msg_size=MAX_PREVIEW_SOURCE * 2)
+    await ws.prepare(request)
+    if not _auth_ok(request, daemon):
+        await ws.close(code=4401, message=b"unauthorized")
+        return ws
+
+    out = Outbox(ws, maxsize=512)
+    board: Board | None = None
+    try:
+        async for msg in ws:
+            if msg.type != WSMsgType.TEXT:
+                continue
+            try:
+                data = json.loads(msg.data)
+            except ValueError:
+                out.send_json({"type": "preview_error", "error": "invalid JSON"})
+                continue
+            if not isinstance(data, dict) or data.get("type") != "preview":
+                continue
+            source = data.get("source")
+            size = _parse_size(data)
+            if not isinstance(source, str):
+                out.send_json(
+                    {"type": "preview_error", "error": "source must be a string"}
+                )
+                continue
+            if len(source) > MAX_PREVIEW_SOURCE:
+                out.send_json(
+                    {"type": "preview_error", "error": "board source is too large"}
+                )
+                continue
+            if size is None:
+                out.send_json(
+                    {
+                        "type": "preview_error",
+                        "error": f"cols and rows must be 1..{MAX_DIM}",
+                    }
+                )
+                continue
+
+            if board is not None:
+                board.stop()
+                board = None
+            try:
+                spec = parse_board_source(source, "preview", daemon.widgets_dir)
+                board = Board(
+                    spec.name,
+                    spec.widgets,
+                    size[0],
+                    size[1],
+                    out.send_bytes,
+                    spec.regions,
+                    spec.frame,
+                )
+                board.start()
+                out.send_bytes(b"\x1b[2J\x1b[H\x1b[?25l")
+                out.send_json({"type": "preview_ready"})
+            except (OSError, TypeError, ValueError, tomllib.TOMLDecodeError) as e:
+                details = _board_parse_error(e)
+                out.send_json({"type": "preview_error", **details})
+    finally:
+        if board is not None:
+            board.stop()
+        out.close()
+    return ws
+
+
+async def api_session(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    return web.json_response({"authenticated": _auth_ok(request, daemon)})
+
+
 async def api_status(request: web.Request) -> web.Response:
     daemon: Daemon = request.app[DAEMON_KEY]
     if not _auth_ok(request, daemon):
@@ -396,8 +543,263 @@ async def api_push(request: web.Request) -> web.Response:
     return web.json_response(daemon.status())
 
 
+async def api_stop(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    await daemon.stop_active()
+    return web.json_response(daemon.status())
+
+
+async def api_widgets(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    widgets, errors = scan_widgets(daemon.widgets_dir)
+    return web.json_response(
+        {"widgets": [widget.to_dict() for widget in widgets], "errors": errors}
+    )
+
+
+async def api_widget_run(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    if not isinstance(data, dict):
+        raise web.HTTPBadRequest(text="invalid request")
+    name = data.get("name")
+    if not isinstance(name, str) or not name:
+        raise web.HTTPBadRequest(text="expected a widget name")
+    try:
+        widget = load_widget(daemon.widgets_dir / safe_name(name))
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    cols, rows = data.get("cols"), data.get("rows")
+    output, error = await run_widget(
+        widget,
+        cols
+        if isinstance(cols, int) and not isinstance(cols, bool) and 1 <= cols <= MAX_DIM
+        else None,
+        rows
+        if isinstance(rows, int) and not isinstance(rows, bool) and 1 <= rows <= MAX_DIM
+        else None,
+    )
+    return web.json_response({"output": output, "error": error})
+
+
+async def api_boards(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    if request.query.get("details") in ("1", "true", "yes"):
+        summaries = list_board_summaries(daemon.boards_dir, daemon.widgets_dir)
+        for summary in summaries:
+            summary["active"] = summary["name"] == daemon.board_folder
+        return web.json_response(summaries)
+    return web.json_response(list_boards(daemon.boards_dir))
+
+
+async def api_board_get(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        source = read_board_source(request.match_info["name"], daemon.boards_dir)
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except ValueError as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.Response(text=source, content_type="text/plain")
+
+
+async def api_board_put(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    source = await request.text()
+    if len(source) > MAX_BOARD_SOURCE:
+        raise web.HTTPRequestEntityTooLarge(
+            max_size=MAX_BOARD_SOURCE, actual_size=len(source)
+        )
+    try:
+        title = save_board_source(
+            request.match_info["name"], source, daemon.boards_dir, daemon.widgets_dir
+        )
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except (OSError, TypeError, ValueError, tomllib.TOMLDecodeError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response({"name": request.match_info["name"], "title": title})
+
+
+async def api_board_validate(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    if not isinstance(data, dict):
+        raise web.HTTPBadRequest(text="invalid request")
+    source = data.get("source")
+    name = data.get("name", "preview")
+    if not isinstance(source, str):
+        raise web.HTTPBadRequest(text="expected board source")
+    if len(source) > MAX_BOARD_SOURCE:
+        raise web.HTTPRequestEntityTooLarge(
+            max_size=MAX_BOARD_SOURCE, actual_size=len(source)
+        )
+    if not isinstance(name, str) or not name:
+        name = "preview"
+    try:
+        safe_name(name)
+    except ValueError as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+    try:
+        spec = parse_board_source(source, name, daemon.widgets_dir)
+    except (OSError, TypeError, ValueError, tomllib.TOMLDecodeError) as e:
+        return web.json_response({"ok": False, **_board_parse_error(e)}, status=400)
+    return web.json_response({"ok": True, "model": board_to_model(spec, name)})
+
+
+async def api_board_create(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    if not isinstance(data, dict):
+        raise web.HTTPBadRequest(text="invalid request")
+    name = data.get("name")
+    template = data.get("template", "auto")
+    frame = data.get("frame", False)
+    widget_names = data.get("widgets")
+    if not isinstance(name, str):
+        raise web.HTTPBadRequest(text="expected a board name")
+    if template not in ("auto", "single", "columns", "grid"):
+        raise web.HTTPBadRequest(text="unknown board template")
+    if not isinstance(frame, bool):
+        raise web.HTTPBadRequest(text="frame must be a boolean")
+    if widget_names is not None and (
+        not isinstance(widget_names, list)
+        or not all(isinstance(item, str) and item for item in widget_names)
+    ):
+        raise web.HTTPBadRequest(text="widgets must be a list of names")
+    try:
+        create_board(
+            name,
+            daemon.boards_dir,
+            daemon.widgets_dir,
+            template=template,
+            widget_names=widget_names,
+            frame=frame,
+        )
+    except FileExistsError as e:
+        raise web.HTTPConflict(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response(
+        {
+            "name": name,
+            "board": summarize_board(name, daemon.boards_dir, daemon.widgets_dir),
+        },
+        status=201,
+    )
+
+
+async def api_board_delete(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    name = request.match_info["name"]
+    try:
+        if daemon.board_folder == name:
+            await daemon.stop_active()
+        delete_board(name, daemon.boards_dir)
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response({"ok": True, "name": name})
+
+
+async def api_board_duplicate(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    new_name = data.get("name") if isinstance(data, dict) else None
+    if not isinstance(new_name, str) or not new_name:
+        raise web.HTTPBadRequest(text="expected a new board name")
+    try:
+        duplicate_board(
+            request.match_info["name"],
+            new_name,
+            daemon.boards_dir,
+            daemon.widgets_dir,
+        )
+    except FileExistsError as e:
+        raise web.HTTPConflict(text=str(e)) from None
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response(
+        {
+            "name": new_name,
+            "board": summarize_board(new_name, daemon.boards_dir, daemon.widgets_dir),
+        },
+        status=201,
+    )
+
+
+async def api_board_rename(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    new_name = data.get("name") if isinstance(data, dict) else None
+    if not isinstance(new_name, str) or not new_name:
+        raise web.HTTPBadRequest(text="expected a new board name")
+    old_name = request.match_info["name"]
+    try:
+        rename_board(old_name, new_name, daemon.boards_dir)
+        daemon.note_renamed_board(old_name, new_name)
+    except FileExistsError as e:
+        raise web.HTTPConflict(text=str(e)) from None
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response(
+        {
+            "name": new_name,
+            "board": summarize_board(new_name, daemon.boards_dir, daemon.widgets_dir),
+        }
+    )
+
+
 async def index(request: web.Request) -> web.Response:
-    return web.Response(text=INDEX_HTML, content_type="text/html")
+    return web.Response(
+        text=INDEX_HTML,
+        content_type="text/html",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 async def api_login(request: web.Request) -> web.Response:
@@ -446,66 +848,6 @@ async def api_pair_svg(request: web.Request) -> web.Response:
     return web.Response(text=qr.svg_inline(), content_type="image/svg+xml")
 
 
-async def api_boards(request: web.Request) -> web.Response:
-    daemon: Daemon = request.app[DAEMON_KEY]
-    if not _auth_ok(request, daemon):
-        raise web.HTTPUnauthorized()
-    return web.json_response(list_boards(daemon.boards_dir))
-
-
-async def api_board_get(request: web.Request) -> web.Response:
-    daemon: Daemon = request.app[DAEMON_KEY]
-    if not _auth_ok(request, daemon):
-        raise web.HTTPUnauthorized()
-    try:
-        source = read_board_source(request.match_info["name"], daemon.boards_dir)
-    except FileNotFoundError as e:
-        raise web.HTTPNotFound(text=str(e)) from None
-    except ValueError as e:
-        raise web.HTTPBadRequest(text=str(e)) from None
-    return web.Response(text=source, content_type="text/plain")
-
-
-async def api_board_put(request: web.Request) -> web.Response:
-    daemon: Daemon = request.app[DAEMON_KEY]
-    if not _auth_ok(request, daemon):
-        raise web.HTTPUnauthorized()
-    source = await request.text()
-    if len(source) > MAX_BOARD_SOURCE:
-        raise web.HTTPRequestEntityTooLarge(
-            max_size=MAX_BOARD_SOURCE, actual_size=len(source)
-        )
-    try:
-        title = save_board_source(
-            request.match_info["name"], source, daemon.boards_dir, daemon.widgets_dir
-        )
-    except FileNotFoundError as e:
-        raise web.HTTPNotFound(text=str(e)) from None
-    except (OSError, TypeError, ValueError) as e:
-        raise web.HTTPBadRequest(text=str(e)) from None
-    return web.json_response({"name": request.match_info["name"], "title": title})
-
-
-async def api_board_create(request: web.Request) -> web.Response:
-    daemon: Daemon = request.app[DAEMON_KEY]
-    if not _auth_ok(request, daemon):
-        raise web.HTTPUnauthorized()
-    try:
-        data = json.loads(await request.text())
-    except ValueError:
-        raise web.HTTPBadRequest(text="invalid JSON") from None
-    name = data.get("name") if isinstance(data, dict) else None
-    if not isinstance(name, str):
-        raise web.HTTPBadRequest(text="expected a board name")
-    try:
-        create_board(name, daemon.boards_dir)
-    except FileExistsError as e:
-        raise web.HTTPConflict(text=str(e)) from None
-    except (OSError, ValueError) as e:
-        raise web.HTTPBadRequest(text=str(e)) from None
-    return web.json_response({"name": name}, status=201)
-
-
 async def _cleanup(app: web.Application) -> None:
     daemon: Daemon = app[DAEMON_KEY]
     if daemon.board is not None:
@@ -527,18 +869,29 @@ def create_app(
             web.get("/", index),
             web.get("/ws/display", display_ws),
             web.get("/ws/session", session_ws),
+            web.get("/ws/preview", preview_ws),
+            web.get("/api/session", api_session),
             web.get("/api/status", api_status),
             web.post("/api/push", api_push),
+            web.post("/api/stop", api_stop),
             web.post("/api/login", api_login),
             web.post("/api/logout", api_logout),
             web.get("/api/pair", api_pair),
             web.get("/api/pair.svg", api_pair_svg),
+            web.get("/api/widgets", api_widgets),
+            web.post("/api/widgets/run", api_widget_run),
             web.get("/api/boards", api_boards),
             web.post("/api/boards", api_board_create),
+            web.post("/api/boards/validate", api_board_validate),
             web.get("/api/boards/{name}", api_board_get),
             web.put("/api/boards/{name}", api_board_put),
+            web.delete("/api/boards/{name}", api_board_delete),
+            web.post("/api/boards/{name}/duplicate", api_board_duplicate),
+            web.post("/api/boards/{name}/rename", api_board_rename),
         ]
     )
+    if WEB_DIR.is_dir():
+        app.router.add_static("/static/", WEB_DIR, name="static", show_index=False)
     app.on_cleanup.append(_cleanup)
     return app
 
