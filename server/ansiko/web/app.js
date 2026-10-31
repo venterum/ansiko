@@ -1,8 +1,8 @@
 import { AnsiTerminal } from "./ansi.js";
 import { BoardEditor } from "./editor.js";
+import { getLanguage, initLanguage, setLanguage, t } from "./i18n.js";
 
 const $ = (id) => document.getElementById(id);
-const html = document.documentElement;
 
 class ApiError extends Error {
   constructor(message, status = 0, line = null, column = null) {
@@ -88,30 +88,14 @@ function clamp(value, min, max) {
 }
 
 function formatAge(epoch) {
-  if (!epoch) return "not saved";
+  if (!epoch) return t("boards.notSaved");
   const seconds = Math.max(0, Math.round(Date.now() / 1000 - epoch));
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
-  return `${Math.round(seconds / 86400)}d ago`;
-}
-
-function setUseIcon(button, name) {
-  const use = button.querySelector("use");
-  if (use) use.setAttribute("href", `#${name}`);
-}
-
-/* --- theme --------------------------------------------------------------- */
-
-function setTheme(theme) {
-  html.dataset.theme = theme;
-  localStorage.setItem("ansiko-theme", theme);
-  setUseIcon($("themeToggle"), theme === "dark" ? "i-sun" : "i-moon");
-}
-
-function initTheme() {
-  const stored = localStorage.getItem("ansiko-theme");
-  setTheme(stored === "light" ? "light" : "dark");
+  const locale = getLanguage() === "ru" ? "ru" : "en";
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "always" });
+  if (seconds < 60) return t("boards.justNow");
+  if (seconds < 3600) return relative.format(-Math.round(seconds / 60), "minute");
+  if (seconds < 86400) return relative.format(-Math.round(seconds / 3600), "hour");
+  return relative.format(-Math.round(seconds / 86400), "day");
 }
 
 /* --- toasts and dialogs -------------------------------------------------- */
@@ -143,7 +127,7 @@ function showDialog({ title, description = "", content = null, actions = [], wid
   if (description) copy.append(node("p", "", description));
   const closeButton = node("button", "icon-btn");
   closeButton.type = "button";
-  closeButton.setAttribute("aria-label", "Close dialog");
+  closeButton.setAttribute("aria-label", t("common.close"));
   closeButton.append(svgIcon("i-x"));
   head.append(copy, closeButton);
   const body = node("div", "modal-body");
@@ -216,7 +200,7 @@ function showDialog({ title, description = "", content = null, actions = [], wid
   return activeDialog;
 }
 
-function confirmDialog(title, message, { confirmLabel = "Confirm", danger = false } = {}) {
+function confirmDialog(title, message, { confirmLabel = t("common.continue"), danger = false } = {}) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (value) => {
@@ -228,7 +212,7 @@ function confirmDialog(title, message, { confirmLabel = "Confirm", danger = fals
       title,
       description: message,
       actions: [
-        { label: "Cancel", onClick: () => { dialog.close(); finish(false); } },
+        { label: t("common.cancel"), onClick: () => { dialog.close(); finish(false); } },
         {
           label: confirmLabel,
           kind: danger ? "danger" : "primary",
@@ -240,7 +224,7 @@ function confirmDialog(title, message, { confirmLabel = "Confirm", danger = fals
   });
 }
 
-function promptDialog(title, description, value = "", label = "Name") {
+function promptDialog(title, description, value = "", label = t("boards.folder")) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (result) => {
@@ -267,18 +251,18 @@ function promptDialog(title, description, value = "", label = "Name") {
       description,
       content,
       actions: [
-        { label: "Cancel", onClick: () => { dialog.close(); finish(null); } },
+        { label: t("common.cancel"), onClick: () => { dialog.close(); finish(null); } },
         {
-          label: "Continue",
+          label: t("common.continue"),
           kind: "primary",
           onClick: (close) => {
             const next = input.value.trim();
             if (!next) {
-              error.textContent = "Enter a name.";
+              error.textContent = t("common.nameRequired");
               return;
             }
             if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(next)) {
-              error.textContent = "Use letters, numbers, dots, dashes or underscores; start with a letter or number.";
+              error.textContent = t("boards.nameError");
               return;
             }
             finish(next);
@@ -419,6 +403,7 @@ const editor = new BoardEditor({
 
 function showLogin() {
   stopPolling();
+  closeFullPreview();
   preview.stop();
   $("appView").classList.add("hidden");
   $("loginView").classList.remove("hidden");
@@ -468,10 +453,10 @@ async function refreshStatus({ quiet = false } = {}) {
     editor.setStatus(status);
   } catch (error) {
     if (error.status === 401) return;
-    if (!quiet) toast(`Status: ${error.message}`, "error");
+    if (!quiet) toast(`${t("view.workspace")}: ${error.message}`, "error");
     $("phonePill").className = "status-pill offline";
-    $("phonePill").replaceChildren(node("span", "status-dot"), node("span", "", "Phone offline"));
-    $("modePill").textContent = "Unknown";
+    $("phonePill").replaceChildren(node("span", "status-dot"), node("span", "", t("status.offline")));
+    $("modePill").textContent = t("status.unknown");
   }
 }
 
@@ -479,35 +464,41 @@ function renderStatus() {
   const status = state.status;
   if (!status) return;
   $("versionLabel").textContent = `v${status.version || "0.2.0"}`;
+  $("statusVersion").textContent = `v${status.version || "0.2.0"}`;
+  $("statusSize").textContent = `${status.display.cols} × ${status.display.rows}`;
+  $("previewSize").textContent = `${status.display.cols} × ${status.display.rows}`;
   const phone = $("phonePill");
   if (status.display.connected) {
     phone.className = "status-pill online";
     phone.replaceChildren(
       node("span", "status-dot"),
-      node("span", "", `Phone ${status.display.cols}×${status.display.rows}`),
+      node("span", "", t("status.phone", { cols: status.display.cols, rows: status.display.rows })),
     );
   } else {
     phone.className = "status-pill offline";
-    phone.replaceChildren(node("span", "status-dot"), node("span", "", "Phone offline"));
+    phone.replaceChildren(node("span", "status-dot"), node("span", "", t("status.offline")));
   }
   const mode = $("modePill");
   if (status.board.active) {
-    mode.textContent = `Board · ${status.board.title || status.board.name}`;
+    mode.textContent = t("status.board", { title: status.board.title || status.board.name });
+    $("statusMode").textContent = t("status.board", { title: status.board.title || status.board.name }).toUpperCase();
     const errors = status.board.errors || [];
-    mode.title = errors.length ? `${errors.length} widget error(s)` : "";
+    mode.title = errors.length ? t("status.widgetIssues", { n: errors.length }) : "";
   } else if (status.session.running) {
-    mode.textContent = "Terminal";
+    mode.textContent = t("status.terminal");
+    $("statusMode").textContent = t("status.terminal").toUpperCase();
   } else {
-    mode.textContent = "Idle";
+    mode.textContent = t("status.idle");
+    $("statusMode").textContent = t("status.idle").toUpperCase();
     mode.title = "";
   }
   const activeParts = [];
-  if (status.display.connected) activeParts.push(`Phone ${status.display.cols}×${status.display.rows}`);
-  if (status.board.active) activeParts.push(`board “${status.board.title || status.board.name}”`);
-  else if (status.session.running) activeParts.push(`terminal ${status.session.argv.join(" ")}`);
-  else activeParts.push("nothing running");
+  if (status.display.connected) activeParts.push(t("status.phone", { cols: status.display.cols, rows: status.display.rows }));
+  if (status.board.active) activeParts.push(t("status.activeBoard", { title: status.board.title || status.board.name }));
+  else if (status.session.running) activeParts.push(t("status.activeTerminal", { argv: status.session.argv.join(" ") }));
+  else activeParts.push(t("status.activeNothing"));
   const errorCount = status.board.errors?.length || 0;
-  if (errorCount) activeParts.push(`${errorCount} widget issue${errorCount === 1 ? "" : "s"}`);
+  if (errorCount) activeParts.push(t("status.widgetIssues", { n: errorCount }));
   $("activeSummary").textContent = activeParts.join(" · ");
   $("stopActive").disabled = !status.board.active && !status.session.running;
   editor.setStatus(status);
@@ -525,7 +516,7 @@ async function loadBoards({ quiet = false } = {}) {
   } catch (error) {
     if (error.status === 401) return;
     $("boardsError").textContent = error.message;
-    if (!quiet) toast(`Boards: ${error.message}`, "error");
+    if (!quiet) toast(`${t("view.boards")}: ${error.message}`, "error");
   }
 }
 
@@ -541,7 +532,7 @@ function renderBoards() {
   });
   $("boardsEmpty").classList.toggle("hidden", state.boards.length > 0);
   $("boardsError").textContent = state.boards.length && !filtered.length
-    ? "No boards match this view."
+    ? t("boards.noMatches")
     : "";
   const activeName = state.status?.board?.name;
   for (const board of filtered) {
@@ -559,10 +550,10 @@ function renderBoards() {
 
     const meta = node("div", "board-card-meta");
     meta.append(
-      node("span", "chip", board.valid ? (board.mode === "auto" ? "Auto layout" : "Free layout") : "Invalid"),
-      node("span", "chip", `${board.widget_count || 0} widget${board.widget_count === 1 ? "" : "s"}`),
+      node("span", "chip", board.valid ? (board.mode === "auto" ? t("boards.auto") : t("boards.free")) : t("boards.invalid")),
+      node("span", "chip", t("boards.widgets", { n: board.widget_count || 0 })),
     );
-    if (board.frame) meta.append(node("span", "chip", "Framed"));
+    if (board.frame) meta.append(node("span", "chip", t("boards.framed")));
     meta.append(node("span", "chip", formatAge(board.updated)));
     if (!board.valid) meta.firstElementChild.classList.add("danger");
     card.append(meta);
@@ -571,19 +562,19 @@ function renderBoards() {
     }
 
     const actions = node("div", "board-card-actions");
-    const open = node("button", "btn", "Open");
+    const open = node("button", "btn", t("boards.open"));
     open.type = "button";
     open.addEventListener("click", () => navigate(`#/board/${encodeURIComponent(board.name)}`));
     const duplicate = node("button", "icon-btn");
     duplicate.type = "button";
-    duplicate.title = "Duplicate board";
-    duplicate.setAttribute("aria-label", `Duplicate ${board.name}`);
+    duplicate.title = t("boards.duplicate");
+    duplicate.setAttribute("aria-label", t("boards.duplicate"));
     duplicate.append(svgIcon("i-copy"));
     duplicate.addEventListener("click", () => duplicateBoard(board.name));
     const remove = node("button", "icon-btn");
     remove.type = "button";
-    remove.title = "Delete board";
-    remove.setAttribute("aria-label", `Delete ${board.name}`);
+    remove.title = t("boards.delete");
+    remove.setAttribute("aria-label", t("boards.delete"));
     remove.append(svgIcon("i-trash"));
     remove.addEventListener("click", () => deleteBoard(board.name));
     actions.append(open, duplicate, remove);
@@ -598,13 +589,13 @@ function renderBoards() {
 
 function openCreateBoard(preferredId = null) {
   if (!state.widgets.length) {
-    toast("Add a widget directory first, then create a board.", "error");
+    toast(t("widgets.empty.title"), "error");
     navigate("#/widgets");
     return;
   }
   const content = node("div", "form-stack");
   const nameRow = node("div", "form-row");
-  const nameLabel = node("label", "", "Folder name");
+  const nameLabel = node("label", "", t("boards.folder"));
   nameLabel.htmlFor = "new-board-name";
   nameRow.append(nameLabel);
   const nameInput = document.createElement("input");
@@ -623,14 +614,14 @@ function openCreateBoard(preferredId = null) {
   content.append(nameRow);
 
   const templateRow = node("div", "form-row");
-  templateRow.append(node("label", "", "Starting point"));
+  templateRow.append(node("label", "", t("boards.start")));
   const choices = node("div", "choice-grid");
   let template = "auto";
   const templates = [
-    ["auto", "Auto pack", "Widgets flow in order and wrap."],
-    ["columns", "Equal columns", "One column is not always the answer."],
-    ["grid", "Grid", "A compact two-by-two style grid."],
-    ["single", "Single widget", "One widget, all the space."],
+    ["auto", t("boards.template.auto"), t("boards.template.autoHint")],
+    ["columns", t("boards.template.columns"), t("boards.template.columnsHint")],
+    ["grid", t("boards.template.grid"), t("boards.template.gridHint")],
+    ["single", t("boards.template.single"), t("boards.template.singleHint")],
   ];
   const buttons = [];
   for (const [value, title, description] of templates) {
@@ -657,12 +648,12 @@ function openCreateBoard(preferredId = null) {
   const frameInput = document.createElement("input");
   frameInput.type = "checkbox";
   frameInput.checked = true;
-  frameLabel.append(frameInput, node("span", "", "Draw a titled frame around each cell"));
+  frameLabel.append(frameInput, node("span", "", t("boards.frameCheckbox")));
   frameRow.append(frameLabel);
   content.append(frameRow);
 
   const widgetRow = node("div", "form-row");
-  widgetRow.append(node("label", "", "Widgets"));
+  widgetRow.append(node("label", "", t("boards.widgetsLabel")));
   const list = node("div", "check-list");
   const selected = preferredId ? new Set([preferredId]) : new Set(state.widgets.slice(0, 3).map((widget) => widget.id));
   for (const widget of state.widgets) {
@@ -682,31 +673,31 @@ function openCreateBoard(preferredId = null) {
   content.append(error);
 
   const dialog = showDialog({
-    title: "New board",
-    description: "A folder under boards/ with a board.toml file.",
+    title: t("boards.newTitle"),
+    description: t("boards.newDesc"),
     content,
     wide: true,
     actions: [
-      { label: "Cancel", onClick: () => dialog.close() },
+      { label: t("common.cancel"), onClick: () => dialog.close() },
       {
-        label: "Create board",
+        label: t("boards.create"),
         kind: "primary",
         onClick: async (close) => {
           const name = nameInput.value.trim();
           if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) {
-            error.textContent = "Use letters, numbers, dots, dashes or underscores; start with a letter or number.";
+            error.textContent = t("boards.nameError");
             return;
           }
           const chosen = [...list.querySelectorAll("input:checked")].map((input) => input.value);
           if (!chosen.length) {
-            error.textContent = "Select at least one widget.";
+            error.textContent = t("boards.selectWidget");
             return;
           }
           try {
             await api.post("/api/boards", { name, template, widgets: chosen, frame: frameInput.checked });
             close();
             await loadBoards();
-            toast(`Created ${name}.`, "success");
+            toast(t("boards.created", { name }), "success");
             navigate(`#/board/${encodeURIComponent(name)}`);
           } catch (e) {
             error.textContent = e.message;
@@ -719,8 +710,8 @@ function openCreateBoard(preferredId = null) {
 
 async function leaveEditor() {
   if (state.editorDirty) {
-    const ok = await confirmDialog("Discard unsaved changes?", "This board has changes that were not saved.", {
-      confirmLabel: "Discard",
+    const ok = await confirmDialog(t("boards.discardTitle"), t("boards.discardText"), {
+      confirmLabel: t("boards.discard"),
       danger: true,
     });
     if (!ok) return;
@@ -734,6 +725,7 @@ async function leaveEditor() {
 }
 
 function openBoardView(folder) {
+  closeFullPreview();
   state.view = "editor";
   $("boardsView").classList.add("hidden");
   $("widgetsView").classList.add("hidden");
@@ -743,7 +735,7 @@ function openBoardView(folder) {
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("is-active", item.dataset.view === "boards");
   });
-  $("viewEyebrow").textContent = "Board editor";
+  $("viewEyebrow").textContent = t("view.editor");
   $("viewTitle").textContent = editor.model?.name || folder;
   document.title = `${editor.model?.name || folder} · Ansiko`;
   closeMobileNav();
@@ -774,24 +766,24 @@ async function openBoard(folder) {
     openBoardView(folder);
     $("viewTitle").textContent = editor.model?.name || folder;
     preview.start(editor.rawSource, editor.getSize());
-    if (error) toast("Board has a TOML issue. Fix it in Source.", "error");
+    if (error) toast(t("editor.toast.fixSource"), "error");
   } catch (e) {
-    toast(`Could not open ${folder}: ${e.message}`, "error");
+    toast(`${t("boards.open")} ${folder}: ${e.message}`, "error");
     navigate("#/boards");
   }
 }
 
 async function renameBoard(folder) {
   if (state.editorDirty) {
-    toast("Save the board before renaming the folder.", "error");
+    toast(t("boards.saveFirst"), "error");
     return;
   }
-  const next = await promptDialog("Rename board folder", "This changes the directory name, not the board title.", folder, "Folder name");
+  const next = await promptDialog(t("boards.renameTitle"), t("boards.renameDesc"), folder, t("boards.renameLabel"));
   if (!next || next === folder) return;
   try {
     await api.post(`/api/boards/${encodeURIComponent(folder)}/rename`, { name: next });
     await loadBoards();
-    toast(`Renamed to ${next}.`, "success");
+    toast(t("boards.renamed", { name: next }), "success");
     navigate(`#/board/${encodeURIComponent(next)}`);
   } catch (error) {
     toast(error.message, "error");
@@ -799,12 +791,12 @@ async function renameBoard(folder) {
 }
 
 async function duplicateBoard(folder) {
-  const next = await promptDialog("Duplicate board", "A new folder with a copy of this board file.", `${folder}-copy`, "New folder name");
+  const next = await promptDialog(t("boards.duplicateTitle"), t("boards.duplicateDesc"), `${folder}-copy`, t("boards.duplicateLabel"));
   if (!next) return;
   try {
     await api.post(`/api/boards/${encodeURIComponent(folder)}/duplicate`, { name: next });
     await loadBoards();
-    toast(`Duplicated as ${next}.`, "success");
+    toast(t("boards.duplicated", { name: next }), "success");
     navigate(`#/board/${encodeURIComponent(next)}`);
   } catch (error) {
     toast(error.message, "error");
@@ -813,9 +805,9 @@ async function duplicateBoard(folder) {
 
 async function deleteBoard(folder) {
   const ok = await confirmDialog(
-    `Delete “${folder}”?`,
-    "The board folder and its board.toml will be removed. Widget directories are not touched.",
-    { confirmLabel: "Delete", danger: true },
+    t("boards.deleteTitle", { name: folder }),
+    t("boards.deleteText"),
+    { confirmLabel: t("common.delete"), danger: true },
   );
   if (!ok) return;
   try {
@@ -828,7 +820,7 @@ async function deleteBoard(folder) {
       navigate("#/boards");
     }
     await loadBoards();
-    toast(`Deleted ${folder}.`, "success");
+    toast(t("boards.deleted", { name: folder }), "success");
   } catch (error) {
     toast(error.message, "error");
   }
@@ -845,7 +837,7 @@ async function loadWidgets() {
     editor.setWidgets(state.widgets);
   } catch (error) {
     if (error.status === 401) return;
-    toast(`Widgets: ${error.message}`, "error");
+    toast(`${t("view.widgets")}: ${error.message}`, "error");
   }
 }
 
@@ -855,7 +847,7 @@ function renderWidgets() {
   $("widgetsEmpty").classList.toggle("hidden", state.widgets.length > 0);
   $("widgetsNotice").classList.toggle("hidden", !state.widgetErrors.length);
   if (state.widgetErrors.length) {
-    $("widgetsNotice").textContent = `${state.widgetErrors.length} manifest${state.widgetErrors.length === 1 ? "" : "s"} could not be loaded.`;
+    $("widgetsNotice").textContent = t("widgets.manifestErrors", { n: state.widgetErrors.length });
   }
   const query = state.widgetQuery.toLowerCase();
   const filtered = state.widgets.filter((widget) => {
@@ -867,29 +859,32 @@ function renderWidgets() {
     const head = node("div", "widget-card-head");
     const copy = node("div");
     copy.append(node("h3", "", widget.name), node("p", "widget-id", widget.id));
-    head.append(copy, node("span", "chip", widget.description ? "ready" : "no description"));
+    head.append(
+      copy,
+      node("span", `chip source-${widget.source || "bundled"}`, t(widget.source === "custom" ? "widgets.custom" : "widgets.bundled")),
+    );
     card.append(head);
-    card.append(node("p", "widget-desc", widget.description || `Prints from ${widget.command}.`));
+    card.append(node("p", "widget-desc", widget.description || `${widget.command}`));
     const specs = node("div", "widget-specs");
     specs.append(
       node("span", "chip", `${widget.width}×${widget.height}`),
       node("span", "chip", `${widget.interval}s`),
-      node("span", "chip", `${widget.timeout}s timeout`),
+      node("span", "chip", `${widget.timeout}s`),
     );
     card.append(specs);
     const actions = node("div", "widget-actions");
-    const use = node("button", "btn", "Use in board");
+    const use = node("button", "btn", t("widgets.use"));
     use.type = "button";
     use.addEventListener("click", () => openCreateBoard(widget.id));
-    const test = node("button", "btn ghost", "Test");
+    const test = node("button", "btn ghost", t("widgets.test"));
     test.type = "button";
     test.addEventListener("click", () => testWidget(widget));
     const copyPath = node("button", "icon-btn");
     copyPath.type = "button";
-    copyPath.title = "Copy widget directory";
-    copyPath.setAttribute("aria-label", `Copy path of ${widget.name}`);
+    copyPath.title = t("widgets.copyPath");
+    copyPath.setAttribute("aria-label", t("widgets.copyPathAria", { name: widget.name }));
     copyPath.append(svgIcon("i-copy"));
-    copyPath.addEventListener("click", () => copyToClipboard(widget.path, "Widget path copied."));
+    copyPath.addEventListener("click", () => copyToClipboard(widget.path, t("widgets.pathCopied")));
     actions.append(use, test, copyPath);
     card.append(actions);
     grid.append(card);
@@ -903,14 +898,14 @@ function renderWidgets() {
 
 async function testWidget(widget) {
   const content = node("div");
-  const pre = node("pre", "modal-preview", "Running…");
+  const pre = node("pre", "modal-preview", t("widgets.running"));
   content.append(pre);
   const dialog = showDialog({
-    title: `Test ${widget.name}`,
+    title: t("widgets.testTitle", { name: widget.name }),
     description: `${widget.command} · ${widget.width}×${widget.height}`,
     content,
     wide: true,
-    actions: [{ label: "Close", onClick: () => dialog.close() }],
+    actions: [{ label: t("common.close"), onClick: () => dialog.close() }],
   });
   try {
     const size = state.status?.display || { cols: widget.width, rows: widget.height };
@@ -919,10 +914,10 @@ async function testWidget(widget) {
       cols: size.cols,
       rows: size.rows,
     });
-    pre.textContent = result.error ? `Error: ${result.error}` : (result.output || "(no output)");
+    pre.textContent = result.error ? t("widgets.error", { message: result.error }) : (result.output || t("widgets.noOutput"));
     if (result.error) pre.classList.add("danger-text");
   } catch (error) {
-    pre.textContent = `Error: ${error.message}`;
+    pre.textContent = t("widgets.error", { message: error.message });
     pre.classList.add("danger-text");
   }
 }
@@ -936,13 +931,13 @@ async function loadPair() {
     $("pairQr").src = `/api/pair.svg?ts=${Date.now()}`;
     const local = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
     $("pairWarning").classList.toggle("hidden", !local);
-    if (local) $("pairWarning").textContent = "Open this page through the computer's LAN address, not localhost, or the QR will point the phone at itself.";
+    if (local) $("pairWarning").textContent = t("pair.warning");
   } catch (error) {
-    if (error.status !== 401) toast(`Pairing: ${error.message}`, "error");
+    if (error.status !== 401) toast(`${t("view.pair")}: ${error.message}`, "error");
   }
 }
 
-async function copyToClipboard(text, message = "Copied.") {
+async function copyToClipboard(text, message = t("common.copied")) {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
@@ -959,78 +954,59 @@ async function copyToClipboard(text, message = "Copied.") {
 }
 
 async function copyPairing() {
-  await copyToClipboard($("pairUrl").textContent, "Pairing URL copied.");
+  await copyToClipboard($("pairUrl").textContent, t("pair.copied"));
 }
-
-const HELP_ARTICLES = {
-  boards: `
-    <p class="eyebrow">Reference</p>
-    <h2>Board format</h2>
-    <p>A board is a directory under <code>boards/</code> with a <code>board.toml</code>. It can use automatic packing or explicit fractional cells. Fractions survive rotation and different phone sizes.</p>
-    <h3>Auto layout</h3>
-    <pre>name = "desk"
-frame = true
-widgets = ["clock", "calendar"]</pre>
-    <h3>Free layout</h3>
-    <pre>name = "desk"
-frame = true
-
-[[cells]]
-widget = "clock"
-x = 0.0
-y = 0.0
-width = 0.5
-height = 0.4
-
-[[cells]]
-widget = "calendar"
-x = 0.5
-y = 0.0
-width = 0.5
-height = 1.0</pre>
-    <p><code>x</code>, <code>y</code>, <code>width</code> and <code>height</code> are fractions from 0 to 1. A cell may set <code>frame = false</code> to override the board frame. The widget receives its inner size in <code>ANSIKO_COLS</code> and <code>ANSIKO_ROWS</code>.</p>
-    <p>In the visual editor, Free layout is draggable. Auto layout is read-only but can be converted with one click.</p>
-  `,
-  widgets: `
-    <p class="eyebrow">Reference</p>
-    <h2>Widget guide</h2>
-    <p>A widget is a directory under <code>widgets/</code> with a manifest and an executable. Any language works: Python, shell, Node, a compiled binary.</p>
-    <pre>widgets/clock/
-├── widget.toml
-└── run.py</pre>
-    <pre>name        = "clock"
-description = "Local time and date"
-command     = "./run.py"
-interval    = 1
-width       = 24
-height      = 5
-timeout     = 2</pre>
-    <p>The script prints UTF-8 text (ANSI is allowed) to stdout and exits. It receives <code>ANSIKO_COLS</code> and <code>ANSIKO_ROWS</code> for its allotted content area. A non-zero exit or timeout shows an error inside that cell only.</p>
-    <h3>Rules of thumb</h3>
-    <ul>
-      <li>Run in well under the timeout; keep <code>interval</code> realistic.</li>
-      <li>Prefer ASCII and box-drawing characters; wide emoji break the grid.</li>
-      <li>Do not loop forever; the scheduler starts a fresh process each time.</li>
-      <li>Read the manifest for optional <code>description</code>; it appears in the catalog.</li>
-    </ul>
-    <p>Scripts are trusted local code. Do not put secrets in a widget that is served from a shared machine.</p>
-  `,
-};
 
 function showHelpArticle(kind) {
   const article = $("helpArticle");
-  article.innerHTML = HELP_ARTICLES[kind] || "";
-  article.classList.toggle("hidden", !HELP_ARTICLES[kind]);
-  if (HELP_ARTICLES[kind]) article.scrollIntoView({ behavior: "smooth", block: "start" });
+  const content = kind ? t(`help.article.${kind}`) : "";
+  article.innerHTML = content;
+  article.classList.toggle("hidden", !content);
+  state.helpArticle = content ? kind : null;
+  if (content) article.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/* --- full preview -------------------------------------------------------- */
+
+let previewHome = null;
+
+function openFullPreview() {
+  if (state.view !== "editor" || !editor.model) return;
+  const panel = document.getElementById("previewPanel");
+  if (!panel || panel.classList.contains("is-fullscreen")) return;
+  previewHome = { parent: panel.parentElement, next: panel.nextSibling };
+  document.body.append(panel);
+  document.body.classList.add("preview-open");
+  $("previewScrim").classList.remove("hidden");
+  panel.classList.add("is-fullscreen");
+  $("expandPreview").classList.add("hidden");
+  $("closePreview").classList.remove("hidden");
+  setTimeout(() => preview.terminal.fit(), 40);
+}
+
+function closeFullPreview() {
+  const panel = document.getElementById("previewPanel");
+  document.body.classList.remove("preview-open");
+  $("previewScrim").classList.add("hidden");
+  if (panel) {
+    panel.classList.remove("is-fullscreen");
+    if (previewHome?.parent) {
+      previewHome.parent.insertBefore(panel, previewHome.next);
+      previewHome = null;
+    }
+  }
+  $("expandPreview").classList.remove("hidden");
+  $("closePreview").classList.add("hidden");
+  setTimeout(() => preview.terminal.fit(), 40);
 }
 
 /* --- routing and sections ------------------------------------------------ */
 
 const VIEW_META = {
-  boards: ["Workspace", "Boards"],
-  widgets: ["Catalog", "Widgets"],
-  pair: ["Device", "Pair phone"],
-  help: ["Documentation", "Help"],
+  boards: ["view.workspace", "view.boards"],
+  widgets: ["widgets.eyebrow", "view.widgets"],
+  pair: ["pair.eyebrow", "view.pair"],
+  help: ["help.eyebrow", "view.help"],
 };
 
 function showSection(name) {
@@ -1041,13 +1017,13 @@ function showSection(name) {
   }
   if (name === "editor") {
     $("editorView").classList.remove("hidden");
-    $("viewEyebrow").textContent = "Board editor";
+    $("viewEyebrow").textContent = t("view.editor");
     if (editor.model) $("viewTitle").textContent = editor.model.name;
   } else {
     $(`${name}View`).classList.remove("hidden");
-    const [eyebrow, title] = VIEW_META[name] || ["Workspace", "Ansiko"];
-    $("viewEyebrow").textContent = eyebrow;
-    $("viewTitle").textContent = title;
+    const [eyebrow, title] = VIEW_META[name] || ["view.workspace", "nav.boards"];
+    $("viewEyebrow").textContent = t(eyebrow);
+    $("viewTitle").textContent = t(title);
     if (name === "boards") loadBoards({ quiet: true });
     if (name === "widgets") loadWidgets();
     if (name === "pair") loadPair();
@@ -1055,6 +1031,7 @@ function showSection(name) {
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.classList.toggle("is-active", name === "editor" ? item.dataset.view === "boards" : item.dataset.view === name);
   });
+  closeFullPreview();
   closeMobileNav();
   if (name === "editor" && editor.model) {
     $("viewTitle").textContent = editor.model.name;
@@ -1083,8 +1060,8 @@ async function route() {
     if (state.editorDirty && state.selectedFolder) {
       const targetFolder = hash.startsWith("#/board/") ? decodeURIComponent(hash.slice(8)) : null;
       if (targetFolder !== state.selectedFolder) {
-        const ok = await confirmDialog("Discard unsaved changes?", "You have unsaved edits in this board.", {
-          confirmLabel: "Discard",
+        const ok = await confirmDialog(t("boards.discardTitle"), t("boards.discardText"), {
+          confirmLabel: t("boards.discard"),
           danger: true,
         });
         if (!ok) {
@@ -1125,8 +1102,32 @@ function closeMobileNav() {
 /* --- events -------------------------------------------------------------- */
 
 function bindEvents() {
-  $("themeToggle").addEventListener("click", () => {
-    setTheme(html.dataset.theme === "dark" ? "light" : "dark");
+  document.querySelectorAll("[data-lang-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setLanguage(getLanguage() === "ru" ? "en" : "ru");
+    });
+  });
+  document.addEventListener("ansiko:lang", () => {
+    if (state.booted) {
+      renderStatus();
+      renderBoards();
+      renderWidgets();
+      loadPair();
+    }
+    if (state.view === "editor" && editor.model && state.booted) {
+      $("viewEyebrow").textContent = t("view.editor");
+      $("viewTitle").textContent = editor.model.name;
+      document.title = `${editor.model.name} · Ansiko`;
+      editor.renderAll();
+      editor.refreshPreviewStatus();
+    } else if (state.booted) {
+      const [eyebrow, title] = VIEW_META[state.view] || ["view.workspace", "nav.boards"];
+      $("viewEyebrow").textContent = t(eyebrow);
+      $("viewTitle").textContent = t(title);
+      document.title = "Ansiko";
+    }
+    if (state.helpArticle) showHelpArticle(state.helpArticle);
+    $("showToken").textContent = $("token").type === "password" ? t("login.show") : t("login.hide");
   });
   $("loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1138,7 +1139,7 @@ function bindEvents() {
         body: JSON.stringify({ token: $("token").value }),
       });
       if (!response.ok) {
-        $("loginError").textContent = response.status === 401 ? "Wrong token." : await response.text();
+        $("loginError").textContent = response.status === 401 ? t("login.wrong") : await response.text();
         return;
       }
       $("token").value = "";
@@ -1150,12 +1151,12 @@ function bindEvents() {
   $("showToken").addEventListener("click", () => {
     const input = $("token");
     input.type = input.type === "password" ? "text" : "password";
-    $("showToken").textContent = input.type === "password" ? "Show" : "Hide";
+    $("showToken").textContent = input.type === "password" ? t("login.show") : t("login.hide");
   });
   $("lock").addEventListener("click", async () => {
     if (state.editorDirty) {
-      const ok = await confirmDialog("Lock the dashboard?", "Unsaved edits will be lost.", {
-        confirmLabel: "Lock",
+      const ok = await confirmDialog(t("boards.lockTitle"), t("boards.lockText"), {
+        confirmLabel: t("boards.lock"),
         danger: true,
       });
       if (!ok) return;
@@ -1179,8 +1180,8 @@ function bindEvents() {
         return;
       }
       if (state.view === "editor" && state.editorDirty) {
-        const ok = await confirmDialog("Discard unsaved changes?", "You have unsaved edits in this board.", {
-          confirmLabel: "Discard",
+        const ok = await confirmDialog(t("boards.discardTitle"), t("boards.discardText"), {
+          confirmLabel: t("boards.discard"),
           danger: true,
         });
         if (!ok) return;
@@ -1227,15 +1228,15 @@ function bindEvents() {
   });
   $("copyPair").addEventListener("click", copyPairing);
   $("stopActive").addEventListener("click", async () => {
-    const ok = await confirmDialog("Stop the display?", "The phone will show the idle screen.", {
-      confirmLabel: "Stop",
+    const ok = await confirmDialog(t("nav.stop"), t("status.offline"), {
+      confirmLabel: t("nav.stop"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.post("/api/stop");
       await refreshStatus();
-      toast("Display stopped.", "success");
+      toast(t("nav.stop"), "success");
     } catch (error) {
       toast(error.message, "error");
     }
@@ -1254,14 +1255,28 @@ function bindEvents() {
     document.querySelectorAll(".menu[open]").forEach((menu) => { menu.open = false; });
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeMobileNav();
+    const editing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName);
+    if (event.key === "Escape") {
+      closeFullPreview();
+      closeMobileNav();
+    }
+    if (!editing && event.key.toLowerCase() === "p" && state.view === "editor" && editor.model) {
+      event.preventDefault();
+      const panel = document.getElementById("previewPanel");
+      if (panel?.classList.contains("is-fullscreen")) closeFullPreview();
+      else openFullPreview();
+    }
   });
+  $("fullPreviewBtn").addEventListener("click", openFullPreview);
+  $("expandPreview").addEventListener("click", openFullPreview);
+  $("closePreview").addEventListener("click", closeFullPreview);
+  $("previewScrim").addEventListener("click", closeFullPreview);
 }
 
 /* --- start --------------------------------------------------------------- */
 
 async function main() {
-  initTheme();
+  initLanguage();
   bindEvents();
   try {
     await boot();

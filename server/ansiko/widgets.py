@@ -23,6 +23,7 @@ class Widget:
     timeout: float
     directory: Path
     description: str = ""
+    source: str = "bundled"
 
     @property
     def id(self) -> str:
@@ -40,6 +41,7 @@ class Widget:
             "height": self.height,
             "timeout": self.timeout,
             "path": str(self.directory),
+            "source": self.source,
         }
 
 
@@ -77,7 +79,7 @@ def _integer(data: dict, key: str, default: int, minimum: int) -> int:
     return value
 
 
-def load_widget(directory: Path) -> Widget:
+def load_widget(directory: Path, source: str = "bundled") -> Widget:
     manifest = directory / MANIFEST
     if not manifest.is_file():
         raise FileNotFoundError(f"missing {manifest}")
@@ -95,25 +97,64 @@ def load_widget(directory: Path) -> Widget:
         timeout=_number(data, "timeout", 5.0, 0.1),
         directory=directory,
         description=_description(data),
+        source=source,
     )
 
 
-def scan_widgets(directory: Path) -> tuple[list[Widget], list[dict]]:
-    """Load every widget directory, keeping bad manifests out of the catalog."""
+def scan_widgets(
+    directory: Path, custom_dir: Path | None = None
+) -> tuple[list[Widget], list[dict]]:
+    """Load widgets from custom and bundled directories.
+
+    The custom directory is searched first. If a custom widget has an invalid
+    manifest, its error is reported instead of silently falling back to the
+    bundled widget with the same id.
+    """
     widgets: list[Widget] = []
     errors: list[dict] = []
-    if not directory.is_dir():
-        return widgets, errors
-    for child in sorted(directory.iterdir(), key=lambda p: p.name.lower()):
-        if not child.is_dir() or child.name.startswith("."):
+    seen: set[str] = set()
+    roots: list[tuple[Path, str]] = []
+    if custom_dir is not None:
+        roots.append((custom_dir, "custom"))
+    roots.append((directory, "bundled"))
+    for root, source in roots:
+        if not root.is_dir():
             continue
-        if not (child / MANIFEST).is_file():
-            continue
-        try:
-            widgets.append(load_widget(child))
-        except (OSError, TypeError, ValueError) as e:
-            errors.append({"id": child.name, "path": str(child), "error": str(e)})
+        for child in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+            if child.name in seen:
+                continue
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            if not (child / MANIFEST).is_file():
+                continue
+            seen.add(child.name)
+            try:
+                widgets.append(load_widget(child, source=source))
+            except (OSError, TypeError, ValueError) as e:
+                errors.append(
+                    {
+                        "id": child.name,
+                        "source": source,
+                        "path": str(child),
+                        "error": str(e),
+                    }
+                )
     return widgets, errors
+
+
+def resolve_widget(
+    name: str, directory: Path, custom_dir: Path | None = None
+) -> Widget:
+    """Resolve a widget id, preferring the custom directory."""
+    roots: list[tuple[Path, str]] = []
+    if custom_dir is not None:
+        roots.append((custom_dir, "custom"))
+    roots.append((directory, "bundled"))
+    for root, source in roots:
+        candidate = root / name
+        if (candidate / MANIFEST).is_file():
+            return load_widget(candidate, source=source)
+    raise FileNotFoundError(f"widget not found: {name}")
 
 
 def _argv(widget: Widget) -> list[str]:

@@ -12,6 +12,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_BOARDS = "boards"
 DEFAULT_WIDGETS = "widgets"
+DEFAULT_CUSTOM_WIDGETS = "custom-widgets"
 
 CONFIG_ENV = "ANSIKO_CONFIG"
 CONFIG_NAME = "ansiko.local.toml"

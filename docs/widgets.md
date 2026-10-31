@@ -2,7 +2,10 @@
 
 A widget is a small program that prints text. Ansiko runs it on an interval,
 places its output inside a board cell, and never gives it control of the phone.
-Any language works: Python, shell, Node, Go, or a compiled binary.
+Any language works: Python, shell, Node, Go, or a compiled binary. Put
+personal widgets in `custom-widgets/` so they stay out of git; bundled examples
+live in `widgets/`. Custom widgets with the same directory name override bundled
+ones.
 
 ```
 widgets/clock/
@@ -100,6 +103,27 @@ an error until the next run.
   cells can be larger or smaller; the widget receives the real inner size.
 - If a widget writes a frame itself, set the board/cell frame off to avoid a
   double border.
+
+## Custom directory
+
+The daemon reads `custom-widgets/` first and `widgets/` second:
+
+```text
+custom-widgets/weather/   -> id "weather", source "custom"
+widgets/clock/            -> id "clock", source "bundled"
+custom-widgets/clock/     -> overrides the bundled clock
+```
+
+Use another location with:
+
+```toml
+# ansiko.local.toml
+custom_widgets = "my-widgets"
+```
+
+or `ansiko serve --custom-widgets my-widgets`. The web catalog shows a
+`CUSTOM` or `BUNDLED` tag for every entry. The board file still references
+the directory id, so no board migration is needed.
 
 ## Test a widget
 

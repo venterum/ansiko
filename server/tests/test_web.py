@@ -132,7 +132,10 @@ async def test_web_login_boards_save_pair_and_push(tmp_path):
             "/static/app.js",
             "/static/editor.js",
             "/static/ansi.js",
-            "/static/favicon.svg",
+            "/static/i18n.js",
+            "/static/ansiko.svg",
+            "/static/fonts/archivo-latin-wght-normal.woff2",
+            "/static/fonts/ibm-plex-mono-latin-400-normal.woff2",
         ):
             response = await client.get(asset)
             assert response.status == 200, asset
@@ -144,7 +147,9 @@ async def test_web_login_boards_save_pair_and_push(tmp_path):
         qr = await client.get("/api/pair.svg")
         assert qr.status == 200
         assert qr.content_type.startswith("image/svg+xml")
-        assert "<svg" in await qr.text()
+        qr_svg = await qr.text()
+        assert "<svg" in qr_svg
+        assert 'xmlns="http://www.w3.org/2000/svg"' in qr_svg
 
         pushed = await client.post("/api/push", json={"board": "demo"})
         assert pushed.status == 200
@@ -279,3 +284,23 @@ async def test_web_delete_active_board_stops_it(tmp_path):
         assert status["board"]["active"] is False
         assert status["board"]["name"] is None
         assert await (await client.get("/api/boards")).json() == []
+
+
+async def test_web_custom_widget_catalog(tmp_path):
+    widgets = tmp_path / "widgets"
+    custom = tmp_path / "custom-widgets"
+    boards = tmp_path / "boards"
+    write_widget(widgets / "clock", "Bundled clock")
+    write_widget(custom / "clock", "Custom clock")
+    write_widget(custom / "weather", "Custom weather")
+    write_board(boards / "demo")
+
+    app = create_app(TOKEN, boards, widgets, custom)
+    async with TestClient(TestServer(app)) as client:
+        await client.post("/api/login", json={"token": TOKEN})
+        data = await (await client.get("/api/widgets")).json()
+        by_id = {widget["id"]: widget for widget in data["widgets"]}
+        assert by_id["clock"]["source"] == "custom"
+        assert by_id["clock"]["description"] == "Custom clock"
+        assert by_id["weather"]["source"] == "custom"
+        assert data["errors"] == []

@@ -326,3 +326,26 @@ async def test_board_reports_widget_errors(tmp_path):
         board.stop()
     assert board.errors()
     assert board.errors()[0]["widget"] == "bad"
+
+
+def test_custom_widgets_override_bundled(tmp_path):
+    bundled = tmp_path / "widgets"
+    custom = tmp_path / "custom-widgets"
+    write_widget(bundled / "clock", "printf 'bundled\\n'")
+    write_widget(custom / "clock", "printf 'custom\\n'")
+    write_widget(custom / "weather", "printf 'sunny\\n'")
+
+    widgets, errors = scan_widgets(bundled, custom)
+    assert errors == []
+    by_id = {widget.id: widget for widget in widgets}
+    assert by_id["clock"].source == "custom"
+    assert by_id["clock"].directory == custom / "clock"
+    assert by_id["weather"].source == "custom"
+
+    spec = parse_board_source(
+        'name = "demo"\nwidgets = ["clock"]\n',
+        "demo",
+        bundled,
+        custom,
+    )
+    assert spec.widgets[0].directory == custom / "clock"

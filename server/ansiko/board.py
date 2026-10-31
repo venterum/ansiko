@@ -28,7 +28,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .widgets import Widget, load_widget, run_widget, scan_widgets
+from .widgets import Widget, resolve_widget, run_widget, scan_widgets
 
 BOARD_MANIFEST = "board.toml"
 BORDER = "\x1b[36m"
@@ -222,7 +222,9 @@ def _fraction(data: dict, key: str) -> float:
     return value
 
 
-def _board_data(data: object, name: str, widgets_dir: Path) -> BoardSpec:
+def _board_data(
+    data: object, name: str, widgets_dir: Path, custom_widgets_dir: Path | None = None
+) -> BoardSpec:
     if not isinstance(data, dict):
         raise TypeError("invalid board")
 
@@ -260,7 +262,9 @@ def _board_data(data: object, name: str, widgets_dir: Path) -> BoardSpec:
             if overridden is not None and not isinstance(overridden, bool):
                 raise TypeError("board cell: 'frame' must be a boolean")
             cell_frame = frame if overridden is None else overridden
-            widgets.append(load_widget(widgets_dir / safe_name(widget_name)))
+            widgets.append(
+                resolve_widget(safe_name(widget_name), widgets_dir, custom_widgets_dir)
+            )
             regions.append(Region(x, y, width, height, cell_frame, overridden))
         return BoardSpec(title.strip(), widgets, regions, frame)
 
@@ -273,12 +277,18 @@ def _board_data(data: object, name: str, widgets_dir: Path) -> BoardSpec:
         raise ValueError("board: 'widgets' must be a non-empty list of names")
 
     widgets = [
-        load_widget(widgets_dir / safe_name(widget_name)) for widget_name in names
+        resolve_widget(safe_name(widget_name), widgets_dir, custom_widgets_dir)
+        for widget_name in names
     ]
     return BoardSpec(title.strip(), widgets, None, frame)
 
 
-def load_board(name: str, boards_dir: Path, widgets_dir: Path) -> BoardSpec:
+def load_board(
+    name: str,
+    boards_dir: Path,
+    widgets_dir: Path,
+    custom_widgets_dir: Path | None = None,
+) -> BoardSpec:
     safe_name(name)
     board_file = boards_dir / name / BOARD_MANIFEST
     if not board_file.is_file():
@@ -286,12 +296,17 @@ def load_board(name: str, boards_dir: Path, widgets_dir: Path) -> BoardSpec:
 
     with board_file.open("rb") as f:
         data = tomllib.load(f)
-    return _board_data(data, name, widgets_dir)
+    return _board_data(data, name, widgets_dir, custom_widgets_dir)
 
 
-def parse_board_source(text: str, name: str, widgets_dir: Path) -> BoardSpec:
+def parse_board_source(
+    text: str,
+    name: str,
+    widgets_dir: Path,
+    custom_widgets_dir: Path | None = None,
+) -> BoardSpec:
     data = tomllib.loads(text)
-    return _board_data(data, name, widgets_dir)
+    return _board_data(data, name, widgets_dir, custom_widgets_dir)
 
 
 def board_to_model(spec: BoardSpec, folder: str | None = None) -> dict:
@@ -406,12 +421,18 @@ def _write_atomic(path: Path, text: str) -> None:
         raise
 
 
-def save_board_source(name: str, text: str, boards_dir: Path, widgets_dir: Path) -> str:
+def save_board_source(
+    name: str,
+    text: str,
+    boards_dir: Path,
+    widgets_dir: Path,
+    custom_widgets_dir: Path | None = None,
+) -> str:
     safe_name(name)
     path = boards_dir / name / BOARD_MANIFEST
     if not path.is_file():
         raise FileNotFoundError(f"board not found: {name}")
-    spec = parse_board_source(text, name, widgets_dir)
+    spec = parse_board_source(text, name, widgets_dir, custom_widgets_dir)
     _write_atomic(path, text)
     return spec.name
 
@@ -424,7 +445,12 @@ def list_boards(boards_dir: Path) -> list[str]:
     )
 
 
-def summarize_board(name: str, boards_dir: Path, widgets_dir: Path) -> dict:
+def summarize_board(
+    name: str,
+    boards_dir: Path,
+    widgets_dir: Path,
+    custom_widgets_dir: Path | None = None,
+) -> dict:
     path = boards_dir / name / BOARD_MANIFEST
     summary: dict = {
         "name": name,
@@ -437,7 +463,7 @@ def summarize_board(name: str, boards_dir: Path, widgets_dir: Path) -> dict:
         "updated": path.stat().st_mtime if path.is_file() else None,
     }
     try:
-        spec = load_board(name, boards_dir, widgets_dir)
+        spec = load_board(name, boards_dir, widgets_dir, custom_widgets_dir)
     except (OSError, TypeError, ValueError) as e:
         summary["error"] = str(e)
         return summary
@@ -453,9 +479,11 @@ def summarize_board(name: str, boards_dir: Path, widgets_dir: Path) -> dict:
     return summary
 
 
-def list_board_summaries(boards_dir: Path, widgets_dir: Path) -> list[dict]:
+def list_board_summaries(
+    boards_dir: Path, widgets_dir: Path, custom_widgets_dir: Path | None = None
+) -> list[dict]:
     return [
-        summarize_board(name, boards_dir, widgets_dir)
+        summarize_board(name, boards_dir, widgets_dir, custom_widgets_dir)
         for name in list_boards(boards_dir)
     ]
 
@@ -512,6 +540,7 @@ def create_board(
     template: str = "auto",
     widget_names: Sequence[str] | None = None,
     frame: bool = False,
+    custom_widgets_dir: Path | None = None,
 ) -> None:
     safe_name(name)
     if template not in TEMPLATES:
@@ -522,7 +551,7 @@ def create_board(
 
     available: list[str] = []
     if widgets_dir is not None:
-        widgets, _ = scan_widgets(widgets_dir)
+        widgets, _ = scan_widgets(widgets_dir, custom_widgets_dir)
         available = [widget.id for widget in widgets]
 
     names = list(widget_names or [])
@@ -530,7 +559,7 @@ def create_board(
         for widget_name in names:
             safe_name(widget_name)
             if widgets_dir is not None:
-                load_widget(widgets_dir / widget_name)
+                resolve_widget(widget_name, widgets_dir, custom_widgets_dir)
     elif widgets_dir is not None:
         names = available[:4]
     if not names:
@@ -573,11 +602,15 @@ def rename_board(name: str, new_name: str, boards_dir: Path) -> None:
 
 
 def duplicate_board(
-    name: str, new_name: str, boards_dir: Path, widgets_dir: Path
+    name: str,
+    new_name: str,
+    boards_dir: Path,
+    widgets_dir: Path,
+    custom_widgets_dir: Path | None = None,
 ) -> None:
     safe_name(name)
     safe_name(new_name)
-    spec = load_board(name, boards_dir, widgets_dir)
+    spec = load_board(name, boards_dir, widgets_dir, custom_widgets_dir)
     target = boards_dir / new_name
     if target.exists():
         raise FileExistsError(f"board already exists: {new_name}")

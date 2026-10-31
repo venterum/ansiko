@@ -28,6 +28,8 @@ android/local.properties
 # --- Local-only widgets/boards ---
 /widgets/local/
 /boards/local/
+/custom-widgets/*
+!/custom-widgets/README.md
 server/--token
 
 # --- OS ---

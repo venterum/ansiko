@@ -1,3 +1,5 @@
+<p align="center"><img src="ansiko.svg" width="72" height="72" alt="Ansiko logo"></p>
+
 # Ansiko
 
 **Turn an old Android phone into a glass terminal for your Linux machine.**
@@ -82,13 +84,17 @@ the phone state and a board library. The visual editor has:
 - drag-and-drop and eight resize handles in free layout;
 - snap to a 5% grid, collision checks, undo/redo and keyboard nudge;
 - automatic packing, equal columns, grid and vertical-stack presets;
-- a live ANSI preview of the same frames the phone receives;
+- a live ANSI monitor with a full-screen mode;
 - a raw TOML tab with line/column validation;
 - save, save & push, duplicate, rename and delete.
 
 The **Widgets** page lists every manifest, shows its size/interval/timeout, runs a
 single test and can start a board with that widget. Widget scripts are not edited in the
-browser; they are normal files in `widgets/`.
+browser; they are normal files in `widgets/` (bundled examples) or `custom-widgets/`
+(your own, ignored by git). A custom widget with the same id overrides the bundled one.
+The dashboard is intentionally Graphite-only and uses self-hosted Archivo + IBM Plex Mono.
+The interface supports English and Russian; it auto-detects the browser language and the
+RU/EN switch is available on the login screen and in the sidebar.
 
 The same page shows a pairing QR code. In the app, long-press the terminal, then tap
 **Scan pairing QR**. The QR contains the host, port, and token, so the app fills all three
@@ -160,7 +166,9 @@ the inner `ANSIKO_COLS` and `ANSIKO_ROWS`, so it does not need to draw its own b
 
 This checkout bundles four small widgets: `clock`, `calendar`, `sysinfo` and `banner`.
 They are ordinary directories with a manifest and an executable; copy one as a starting
-point. The dashboard also has a **Widgets** catalog and a **[widget guide](docs/widgets.md)**.
+point. Put personal widgets in `custom-widgets/`; that directory is ignored by git and
+merged with the bundled catalog. The dashboard also has a **Widgets** catalog and a
+**[widget guide](docs/widgets.md)**.
 
 Tip: `figlet`, `toilet`, `rich`, and `plotext` are great for big digits, boxes, and charts.
 
@@ -168,7 +176,7 @@ Tip: `figlet`, `toilet`, `rich`, and `plotext` are great for big digits, boxes, 
 
 - [Widget guide](docs/widgets.md) — manifest, environment, ANSI, errors, testing.
 - [Board format](docs/boards.md) — auto/free layouts, frames, visual editor.
-- [Web dashboard](docs/web-ui.md) — library, editor, widgets, pairing, shortcuts.
+- [Web dashboard](docs/web-ui.md) — library, editor, monitor, widgets, pairing, shortcuts.
 - [Protocol](docs/protocol.md) — phone, terminal and preview WebSockets; HTTP API.
 
 ## CLI

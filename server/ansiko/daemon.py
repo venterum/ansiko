@@ -38,9 +38,14 @@ from .board import (
     save_board_source,
     summarize_board,
 )
-from .config import DEFAULT_BOARDS, DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_WIDGETS
+from .config import (
+    DEFAULT_BOARDS,
+    DEFAULT_COLS,
+    DEFAULT_ROWS,
+    DEFAULT_WIDGETS,
+)
 from .session import Session
-from .widgets import load_widget, run_widget, scan_widgets
+from .widgets import resolve_widget, run_widget, scan_widgets
 
 MAX_DIM = 500
 MAX_BOARD_SOURCE = 64 * 1024
@@ -123,10 +128,12 @@ class Daemon:
         token: str,
         boards_dir: Path = Path(DEFAULT_BOARDS),
         widgets_dir: Path = Path(DEFAULT_WIDGETS),
+        custom_widgets_dir: Path | None = None,
     ) -> None:
         self.token = token
         self.boards_dir = boards_dir
         self.widgets_dir = widgets_dir
+        self.custom_widgets_dir = custom_widgets_dir
         self.display: Outbox | None = None
         self.cols, self.rows = (
             DEFAULT_COLS,
@@ -242,7 +249,9 @@ class Daemon:
     # --- board ---------------------------------------------------------------
 
     async def activate_board(self, name: str) -> None:
-        spec = load_board(name, self.boards_dir, self.widgets_dir)
+        spec = load_board(
+            name, self.boards_dir, self.widgets_dir, self.custom_widgets_dir
+        )
         if self.session is not None:
             self.session.stop()
             for _ in range(20):
@@ -487,7 +496,9 @@ async def preview_ws(request: web.Request) -> web.WebSocketResponse:
                 board.stop()
                 board = None
             try:
-                spec = parse_board_source(source, "preview", daemon.widgets_dir)
+                spec = parse_board_source(
+                    source, "preview", daemon.widgets_dir, daemon.custom_widgets_dir
+                )
                 board = Board(
                     spec.name,
                     spec.widgets,
@@ -555,7 +566,7 @@ async def api_widgets(request: web.Request) -> web.Response:
     daemon: Daemon = request.app[DAEMON_KEY]
     if not _auth_ok(request, daemon):
         raise web.HTTPUnauthorized()
-    widgets, errors = scan_widgets(daemon.widgets_dir)
+    widgets, errors = scan_widgets(daemon.widgets_dir, daemon.custom_widgets_dir)
     return web.json_response(
         {"widgets": [widget.to_dict() for widget in widgets], "errors": errors}
     )
@@ -575,7 +586,9 @@ async def api_widget_run(request: web.Request) -> web.Response:
     if not isinstance(name, str) or not name:
         raise web.HTTPBadRequest(text="expected a widget name")
     try:
-        widget = load_widget(daemon.widgets_dir / safe_name(name))
+        widget = resolve_widget(
+            safe_name(name), daemon.widgets_dir, daemon.custom_widgets_dir
+        )
     except FileNotFoundError as e:
         raise web.HTTPNotFound(text=str(e)) from None
     except (OSError, TypeError, ValueError) as e:
@@ -598,7 +611,9 @@ async def api_boards(request: web.Request) -> web.Response:
     if not _auth_ok(request, daemon):
         raise web.HTTPUnauthorized()
     if request.query.get("details") in ("1", "true", "yes"):
-        summaries = list_board_summaries(daemon.boards_dir, daemon.widgets_dir)
+        summaries = list_board_summaries(
+            daemon.boards_dir, daemon.widgets_dir, daemon.custom_widgets_dir
+        )
         for summary in summaries:
             summary["active"] = summary["name"] == daemon.board_folder
         return web.json_response(summaries)
@@ -629,7 +644,11 @@ async def api_board_put(request: web.Request) -> web.Response:
         )
     try:
         title = save_board_source(
-            request.match_info["name"], source, daemon.boards_dir, daemon.widgets_dir
+            request.match_info["name"],
+            source,
+            daemon.boards_dir,
+            daemon.widgets_dir,
+            daemon.custom_widgets_dir,
         )
     except FileNotFoundError as e:
         raise web.HTTPNotFound(text=str(e)) from None
@@ -663,7 +682,9 @@ async def api_board_validate(request: web.Request) -> web.Response:
     except ValueError as e:
         return web.json_response({"ok": False, "error": str(e)}, status=400)
     try:
-        spec = parse_board_source(source, name, daemon.widgets_dir)
+        spec = parse_board_source(
+            source, name, daemon.widgets_dir, daemon.custom_widgets_dir
+        )
     except (OSError, TypeError, ValueError, tomllib.TOMLDecodeError) as e:
         return web.json_response({"ok": False, **_board_parse_error(e)}, status=400)
     return web.json_response({"ok": True, "model": board_to_model(spec, name)})
@@ -702,6 +723,7 @@ async def api_board_create(request: web.Request) -> web.Response:
             template=template,
             widget_names=widget_names,
             frame=frame,
+            custom_widgets_dir=daemon.custom_widgets_dir,
         )
     except FileExistsError as e:
         raise web.HTTPConflict(text=str(e)) from None
@@ -710,7 +732,9 @@ async def api_board_create(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "name": name,
-            "board": summarize_board(name, daemon.boards_dir, daemon.widgets_dir),
+            "board": summarize_board(
+                name, daemon.boards_dir, daemon.widgets_dir, daemon.custom_widgets_dir
+            ),
         },
         status=201,
     )
@@ -749,6 +773,7 @@ async def api_board_duplicate(request: web.Request) -> web.Response:
             new_name,
             daemon.boards_dir,
             daemon.widgets_dir,
+            daemon.custom_widgets_dir,
         )
     except FileExistsError as e:
         raise web.HTTPConflict(text=str(e)) from None
@@ -759,7 +784,12 @@ async def api_board_duplicate(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "name": new_name,
-            "board": summarize_board(new_name, daemon.boards_dir, daemon.widgets_dir),
+            "board": summarize_board(
+                new_name,
+                daemon.boards_dir,
+                daemon.widgets_dir,
+                daemon.custom_widgets_dir,
+            ),
         },
         status=201,
     )
@@ -789,7 +819,12 @@ async def api_board_rename(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "name": new_name,
-            "board": summarize_board(new_name, daemon.boards_dir, daemon.widgets_dir),
+            "board": summarize_board(
+                new_name,
+                daemon.boards_dir,
+                daemon.widgets_dir,
+                daemon.custom_widgets_dir,
+            ),
         }
     )
 
@@ -845,7 +880,10 @@ async def api_pair_svg(request: web.Request) -> web.Response:
     if not _auth_ok(request, daemon):
         raise web.HTTPUnauthorized()
     qr = segno.make(_pair_url(request, daemon), error="m")
-    return web.Response(text=qr.svg_inline(), content_type="image/svg+xml")
+    svg = qr.svg_inline()
+    if "xmlns=" not in svg:
+        svg = svg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ', 1)
+    return web.Response(text=svg, content_type="image/svg+xml")
 
 
 async def _cleanup(app: web.Application) -> None:
@@ -861,9 +899,15 @@ def create_app(
     token: str,
     boards_dir: Path = Path(DEFAULT_BOARDS),
     widgets_dir: Path = Path(DEFAULT_WIDGETS),
+    custom_widgets_dir: Path | None = None,
 ) -> web.Application:
     app = web.Application()
-    app[DAEMON_KEY] = Daemon(token, Path(boards_dir), Path(widgets_dir))
+    app[DAEMON_KEY] = Daemon(
+        token,
+        Path(boards_dir),
+        Path(widgets_dir),
+        Path(custom_widgets_dir) if custom_widgets_dir is not None else None,
+    )
     app.add_routes(
         [
             web.get("/", index),
@@ -902,9 +946,10 @@ def serve(
     token: str,
     boards_dir: Path = Path(DEFAULT_BOARDS),
     widgets_dir: Path = Path(DEFAULT_WIDGETS),
+    custom_widgets_dir: Path | None = None,
 ) -> None:
     web.run_app(
-        create_app(token, boards_dir, widgets_dir),
+        create_app(token, boards_dir, widgets_dir, custom_widgets_dir),
         host=host,
         port=port,
         print=None,

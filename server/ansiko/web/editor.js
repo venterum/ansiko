@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 const GRID = 0.05;
 const EPS = 1e-6;
 let uidCounter = 0;
@@ -223,6 +225,7 @@ export class BoardEditor {
     };
 
     this._bind();
+    this.setPreviewStatus("", "off");
     this._resizeObserver = new ResizeObserver(() => this.fitCanvas());
     this._resizeObserver.observe(this.el.canvasStage);
   }
@@ -324,8 +327,7 @@ export class BoardEditor {
     this.activeTab = model ? "layout" : "source";
     this.sourceDirty = false;
     this.el.sourceEditor.value = source;
-    const errorLine = error?.line ? `Line ${error.line}${error.column ? `, column ${error.column}` : ""}: ` : "";
-    this.el.sourceError.textContent = error ? `${errorLine}${error.message}` : "";
+    this.el.sourceError.textContent = error ? this.sourceErrorText(error) : "";
     this.updateLineNumbers();
     if (model) this.renderAll();
     else {
@@ -381,13 +383,37 @@ export class BoardEditor {
       return;
     }
     const summary = errors.slice(0, 3).map((item) => `${item.widget}: ${item.message}`).join(" · ");
-    this.el.alert.textContent = `${errors.length} widget error${errors.length === 1 ? "" : "s"}: ${summary}`;
+    this.el.alert.textContent = t("editor.alert", { n: errors.length, summary });
     this.el.alert.classList.remove("hidden");
   }
 
   setPreviewStatus(kind, text) {
+    this.previewKind = kind;
+    this.previewText = text;
+    const keys = {
+      off: "preview.off",
+      connecting: "preview.connecting",
+      live: "preview.live",
+      reconnecting: "preview.reconnecting",
+      error: "preview.error",
+      "connection error": "preview.connectionError",
+    };
     this.el.previewStatus.className = `preview-status ${kind || ""}`;
-    this.el.previewStatus.textContent = text;
+    this.el.previewStatus.textContent = keys[text] ? t(keys[text]) : text;
+  }
+
+  refreshPreviewStatus() {
+    this.setPreviewStatus(this.previewKind || "", this.previewText || "off");
+  }
+
+  sourceErrorText(error) {
+    if (!error) return "";
+    const key = error.column ? "editor.sourceErrorColumn" : "editor.sourceError";
+    return t(key, {
+      line: error.line || "?",
+      column: error.column,
+      message: error.message || "",
+    });
   }
 
   getSize() {
@@ -507,7 +533,7 @@ export class BoardEditor {
 
   renderFolder() {
     if (!this.folder) return;
-    this.el.folder.textContent = this.active ? `${this.folder} · on phone` : this.folder;
+    this.el.folder.textContent = this.active ? t("editor.onPhone", { folder: this.folder }) : this.folder;
     this.el.folder.classList.toggle("accent", this.active);
     this.el.folder.title = this.folder;
   }
@@ -533,7 +559,7 @@ export class BoardEditor {
   switchTab(tab) {
     if (tab === this.activeTab) return;
     if (tab === "layout" && !this.model) {
-      this.options.toast("Fix the source first, then switch to layout.", "error");
+      this.options.toast(t("editor.toast.fixSource"), "error");
       return;
     }
     if (tab === "layout" && this.sourceDirty) {
@@ -566,19 +592,24 @@ export class BoardEditor {
     this.el.palette.replaceChildren();
     this.el.paletteCount.textContent = String(this.widgets.length);
     if (!items.length) {
-      this.el.palette.append(element("p", "hint", "No widgets match. Check the Widgets page."));
+      this.el.palette.append(element("p", "hint", t("editor.palette.noMatch")));
       return;
     }
     for (const widget of items) {
       const item = element("button", "palette-item");
       item.type = "button";
       item.draggable = true;
-      item.title = `Add ${widget.name}`;
+      item.title = t("editor.palette.add", { name: widget.name });
       const glyph = element("span", "palette-glyph", widget.name.slice(0, 2).toUpperCase());
       const copy = element("span", "palette-item-copy");
       copy.append(
         element("span", "palette-item-name", widget.name),
-        element("span", "palette-item-meta", `${widget.width}×${widget.height} · ${widget.interval}s`),
+        element("span", "palette-item-meta", t("editor.palette.meta", {
+          w: widget.width,
+          h: widget.height,
+          interval: widget.interval,
+          source: t(widget.source === "custom" ? "widgets.custom" : "widgets.bundled"),
+        })),
       );
       item.append(glyph, copy, icon("i-plus"));
       item.addEventListener("click", () => this.addWidget(widget.id));
@@ -631,14 +662,14 @@ export class BoardEditor {
   addWidget(id, at = null) {
     if (!this.model) return;
     if (!this.widget(id)) {
-      this.options.toast(`Widget "${id}" is not available.`, "error");
+      this.options.toast(t("editor.toast.widgetMissing", { name: id }), "error");
       return;
     }
     if (this.model.mode === "auto") {
       const before = this.payload();
       this.model.widgets.push(id);
       this.commit(before);
-      this.options.toast(`Added ${this.displayWidgetName(id)}.`, "success");
+      this.options.toast(t("editor.toast.added", { name: this.displayWidgetName(id) }), "success");
       return;
     }
     const before = this.payload();
@@ -652,13 +683,13 @@ export class BoardEditor {
       };
       const candidate = { ...spot, ...size };
       if (this.collision(candidate)) {
-        this.options.toast("That spot is occupied. Try another position.", "error");
+        this.options.toast(t("editor.toast.occupied"), "error");
         return;
       }
     } else {
       spot = this.findFreeSpot(size.width, size.height);
       if (!spot) {
-        this.options.toast("No free space. Resize a cell or remove a widget.", "error");
+        this.options.toast(t("editor.toast.noSpace"), "error");
         return;
       }
     }
@@ -674,7 +705,7 @@ export class BoardEditor {
     this.model.cells.push(cell);
     this.selectedId = cell.uid;
     this.commit(before);
-    this.options.toast(`Added ${this.displayWidgetName(id)}.`, "success");
+    this.options.toast(t("editor.toast.added", { name: this.displayWidgetName(id) }), "success");
   }
 
   setMode(mode) {
@@ -682,7 +713,7 @@ export class BoardEditor {
     if (mode === "cells") {
       const auto = this.autoCells();
       if (auto.some((cell) => cell.offscreen)) {
-        this.options.toast("Those widgets do not fit the current display. Remove one or use a larger grid.", "error");
+        this.options.toast(t("editor.toast.noFit"), "error");
         return;
       }
       const before = this.payload();
@@ -724,7 +755,7 @@ export class BoardEditor {
       const before = this.payload();
       const auto = this.autoCells();
       if (auto.some((cell) => cell.offscreen)) {
-        this.options.toast("Not enough room for the auto layout. Remove a widget first.", "error");
+        this.options.toast(t("editor.toast.autoNoFit"), "error");
         return;
       }
       this.model.cells = auto.map((cell) => ({
@@ -813,11 +844,11 @@ export class BoardEditor {
       this.el.cellLayer.append(node);
     }
     const warning = cells.some((cell) => cell.offscreen)
-      ? " · some widgets are off-screen"
+      ? t("editor.status.offscreen")
       : "";
     this.el.canvasStatus.textContent = auto
-      ? `${cells.length} widget${cells.length === 1 ? "" : "s"} · auto layout is read-only${warning}`
-      : `${cells.length} cell${cells.length === 1 ? "" : "s"} · free layout${warning}`;
+      ? t("editor.status.auto", { n: cells.length, extra: warning })
+      : t("editor.status.free", { n: cells.length, extra: warning });
     this.fitCanvas();
   }
 
@@ -909,8 +940,8 @@ export class BoardEditor {
     drag.invalid = this.collision(cell);
     this.updateCellVisual(cell, drag.invalid);
     this.el.canvasStatus.textContent = drag.invalid
-      ? "Overlaps another cell — release to cancel"
-      : "Release to place";
+      ? t("editor.toast.overlap")
+      : t("editor.toast.release");
   };
 
   _onPointerUp = () => {
@@ -923,7 +954,7 @@ export class BoardEditor {
     this.el.cellLayer.querySelector(`[data-uid="${drag.cell.uid}"]`)?.classList.remove("dragging");
     if (drag.invalid) {
       Object.assign(drag.cell, drag.orig);
-      this.options.toast("Move cancelled: cells cannot overlap.", "error");
+      this.options.toast(t("editor.toast.moveCancelled"), "error");
       this.renderCanvas();
       this.renderInspector();
       return;
@@ -948,7 +979,7 @@ export class BoardEditor {
     cell[key] = snap(value);
     if (this.collision(cell)) {
       cell[key] = previous;
-      this.options.toast("That change would overlap another cell.", "error");
+      this.options.toast(t("editor.toast.collision"), "error");
       this.renderInspector();
       return;
     }
@@ -963,7 +994,7 @@ export class BoardEditor {
     if (this.collision(cell)) {
       cell.x = previous.x;
       cell.y = previous.y;
-      this.options.toast("The cell would overlap another one.", "error");
+      this.options.toast(t("editor.toast.nudgeCollision"), "error");
       this.renderInspector();
       return;
     }
@@ -981,7 +1012,7 @@ export class BoardEditor {
     if (this.collision(copy)) {
       const spot = this.findFreeSpot(copy.width, copy.height);
       if (!spot) {
-        this.options.toast("No free space for a duplicate.", "error");
+        this.options.toast(t("editor.toast.duplicateNoSpace"), "error");
         return;
       }
       copy.x = spot.x;
@@ -1004,7 +1035,7 @@ export class BoardEditor {
   renderInspector() {
     if (!this.model) {
       this.el.inspector.replaceChildren(
-        element("p", "inspector-empty", this.invalidError?.message || "Fix the TOML source to load the layout."),
+        element("p", "inspector-empty", this.invalidError?.message || t("editor.toast.fixSource")),
       );
       this.el.clearSelection.classList.add("hidden");
       return;
@@ -1014,7 +1045,7 @@ export class BoardEditor {
     this.el.clearSelection.classList.toggle("hidden", !this.selectedId);
     if (this.model.mode === "auto") {
       body.append(
-        element("p", "inspector-empty", "Auto layout packs widgets in the order below. Drag-and-drop is available in free layout."),
+        element("p", "inspector-empty", t("editor.autoHint")),
       );
       const list = element("div", "auto-list");
       this.model.widgets.forEach((id, index) => {
@@ -1022,23 +1053,23 @@ export class BoardEditor {
         const label = element("span", "", this.displayWidgetName(id));
         const up = element("button", "icon-btn", "↑");
         up.type = "button";
-        up.title = "Move up";
+        up.title = t("editor.moveUp");
         up.disabled = index === 0;
         up.addEventListener("click", () => this.reorder(index, -1));
         const down = element("button", "icon-btn", "↓");
         down.type = "button";
-        down.title = "Move down";
+        down.title = t("editor.moveDown");
         down.disabled = index === this.model.widgets.length - 1;
         down.addEventListener("click", () => this.reorder(index, 1));
         const remove = element("button", "icon-btn", "×");
         remove.type = "button";
-        remove.title = "Remove";
+        remove.title = t("editor.remove");
         remove.addEventListener("click", () => this.removeAuto(index));
         row.append(label, up, down, remove);
         list.append(row);
       });
       body.append(list);
-      const convert = element("button", "btn block", "Convert to free layout");
+      const convert = element("button", "btn block", t("editor.convertFree"));
       convert.type = "button";
       convert.addEventListener("click", () => this.setMode("cells"));
       body.append(convert);
@@ -1048,9 +1079,9 @@ export class BoardEditor {
     const cell = this.selectedCell();
     if (!cell) {
       body.append(
-        element("p", "inspector-empty", "Select a cell to change its position, size or frame. Drag from the palette to add a widget."),
+        element("p", "inspector-empty", t("editor.inspectorEmpty")),
       );
-      const fill = element("button", "btn block", "Distribute cells in a grid");
+      const fill = element("button", "btn block", t("editor.distribute"));
       fill.type = "button";
       fill.addEventListener("click", () => this.applyQuickLayout("grid"));
       body.append(fill);
@@ -1068,7 +1099,7 @@ export class BoardEditor {
     const grid = element("div", "prop-grid");
     for (const key of ["x", "y", "width", "height"]) {
       const field = element("label", "prop-field");
-      const labelText = key === "width" ? "Width %" : key === "height" ? "Height %" : `${key.toUpperCase()} %`;
+      const labelText = t(`editor.${key}`);
       field.append(element("span", "", labelText));
       const input = document.createElement("input");
       input.type = "number";
@@ -1082,12 +1113,12 @@ export class BoardEditor {
     }
 
     const frameField = element("label", "prop-field prop-wide");
-    frameField.append(element("span", "", "Frame"));
+    frameField.append(element("span", "", t("editor.frame")));
     const frameSelect = document.createElement("select");
     for (const [value, label] of [
-      ["inherit", "Use board setting"],
-      ["true", "Frame this cell"],
-      ["false", "No frame"],
+      ["inherit", t("editor.frameInherit")],
+      ["true", t("editor.frameOn")],
+      ["false", t("editor.frameOff")],
     ]) {
       const option = document.createElement("option");
       option.value = value;
@@ -1113,17 +1144,17 @@ export class BoardEditor {
     ]) {
       const button = element("button", `icon-btn nudge-${direction}`, label);
       button.type = "button";
-      button.title = `Nudge ${direction}`;
+      button.title = t({ up: "editor.nudgeUp", down: "editor.nudgeDown", left: "editor.nudgeLeft", right: "editor.nudgeRight" }[direction]);
       button.addEventListener("click", () => this.nudge(cell, dx, dy));
       nudge.append(button);
     }
     body.append(nudge);
 
     const actions = element("div", "inspector-actions");
-    const duplicate = element("button", "btn ghost", "Duplicate");
+    const duplicate = element("button", "btn ghost", t("editor.duplicateCell"));
     duplicate.type = "button";
     duplicate.addEventListener("click", () => this.duplicateCell(cell));
-    const remove = element("button", "btn danger-text", "Delete");
+    const remove = element("button", "btn danger-text", t("editor.deleteCell"));
     remove.type = "button";
     remove.addEventListener("click", () => this.deleteSelected());
     actions.append(duplicate, remove);
@@ -1151,12 +1182,11 @@ export class BoardEditor {
     return this.options.validate(source, this.folder)
       .then((model) => {
         if (!quiet) this.el.sourceError.textContent = "";
-        if (toastSuccess) this.options.toast("TOML is valid.", "success");
+        if (toastSuccess) this.options.toast(t("editor.toast.sourceValid"), "success");
         return model;
       })
       .catch((error) => {
-        const line = error.line ? `Line ${error.line}${error.column ? `, column ${error.column}` : ""}: ` : "";
-        this.el.sourceError.textContent = `${line}${error.message}`;
+        this.el.sourceError.textContent = this.sourceErrorText(error);
         return null;
       });
   }
@@ -1174,11 +1204,10 @@ export class BoardEditor {
       this.renderAll();
       this.updateDirty();
       this.notifyPreview();
-      this.options.toast("Source loaded into the layout.", "success");
+      this.options.toast(t("editor.toast.sourceLoaded"), "success");
       return true;
     } catch (error) {
-      const line = error.line ? `Line ${error.line}${error.column ? `, column ${error.column}` : ""}: ` : "";
-      this.el.sourceError.textContent = `${line}${error.message}`;
+      this.el.sourceError.textContent = this.sourceErrorText(error);
       return false;
     }
   }
@@ -1188,9 +1217,8 @@ export class BoardEditor {
     try {
       await this.options.validate(source, this.folder);
     } catch (error) {
-      const line = error.line ? `Line ${error.line}${error.column ? `, column ${error.column}` : ""}: ` : "";
-      this.el.sourceError.textContent = `${line}${error.message}`;
-      this.options.toast("Fix the source before saving.", "error");
+      this.el.sourceError.textContent = this.sourceErrorText(error);
+      this.options.toast(t("editor.toast.fixBeforeSave"), "error");
       return;
     }
     await this.save({ push: false, source });
@@ -1199,11 +1227,11 @@ export class BoardEditor {
   async save({ push = false, source = null } = {}) {
     if (this._saving) return;
     if (!this.canSave()) {
-      this.options.toast("Add at least one widget first.", "error");
+      this.options.toast(t("editor.toast.addFirst"), "error");
       return;
     }
     if (push && !this.model) {
-      this.options.toast("Fix the source before pushing.", "error");
+      this.options.toast(t("editor.toast.invalidPush"), "error");
       return;
     }
     let text = source ?? this.rawSource;
@@ -1220,18 +1248,17 @@ export class BoardEditor {
       this.el.sourceEditor.value = text;
       this.updateLineNumbers();
       this.el.sourceError.textContent = "";
-      this.options.toast("Board saved.", "success");
+      this.options.toast(t("editor.toast.saved"), "success");
       if (push) {
         await this.options.push(this.folder);
-        this.options.toast("Sent to the phone.", "success");
+        this.options.toast(t("editor.toast.pushed"), "success");
         this.active = true;
         this.renderFolder();
         this.options.refreshStatus();
       }
     } catch (error) {
-      const line = error.line ? `Line ${error.line}${error.column ? `, column ${error.column}` : ""}: ` : "";
-      this.el.sourceError.textContent = `${line}${error.message}`;
-      this.options.toast(error.message || "Could not save the board.", "error");
+      this.el.sourceError.textContent = this.sourceErrorText(error);
+      this.options.toast(error.message || t("editor.toast.saveFailed"), "error");
     } finally {
       this._saving = false;
       this.updateDirty();

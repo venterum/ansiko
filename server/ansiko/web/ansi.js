@@ -114,8 +114,11 @@ export class AnsiTerminal {
 
   fit() {
     if (!this.el || !this.el.clientWidth) return;
-    const available = Math.max(120, this.el.clientWidth - 20);
-    const size = clamp(available / this.cols / 0.62, 7, 13.5);
+    const availableWidth = Math.max(120, this.el.clientWidth - 20);
+    const availableHeight = Math.max(120, this.el.clientHeight - 20);
+    const widthSize = availableWidth / this.cols / 0.62;
+    const heightSize = availableHeight / this.rows / 1.25;
+    const size = clamp(Math.min(widthSize, heightSize), 6, 28);
     this.el.style.fontSize = `${size.toFixed(2)}px`;
     this.el.style.lineHeight = "1.25";
   }

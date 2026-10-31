@@ -19,7 +19,7 @@ ansiko = "ansiko.cli:main"
 packages = ["ansiko"]
 
 [tool.setuptools.package-data]
-ansiko = ["web/*"]
+ansiko = ["web/*", "web/fonts/*"]
 
 [tool.ruff]
 target-version = "py311"

@@ -16,6 +16,7 @@ from . import __version__
 from .config import (
     CONFIG_NAME,
     DEFAULT_BOARDS,
+    DEFAULT_CUSTOM_WIDGETS,
     DEFAULT_HOST,
     DEFAULT_PORT,
     DEFAULT_WIDGETS,
@@ -66,6 +67,11 @@ def _serve(args: argparse.Namespace) -> int:
     base = path.parent if path is not None else Path.cwd()
     boards = _directory(args.boards or data.get("boards"), DEFAULT_BOARDS, base)
     widgets = _directory(args.widgets or data.get("widgets"), DEFAULT_WIDGETS, base)
+    custom_widgets = _directory(
+        args.custom_widgets or data.get("custom_widgets"),
+        DEFAULT_CUSTOM_WIDGETS,
+        base,
+    )
 
     print(
         f"ansiko {__version__} on ws://{host}:{port}/ws/display",
@@ -74,7 +80,7 @@ def _serve(args: argparse.Namespace) -> int:
     )
     from .daemon import serve
 
-    serve(host, port, token, boards, widgets)
+    serve(host, port, token, boards, widgets, custom_widgets)
     return 0
 
 
@@ -203,7 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve = sub.add_parser("serve", help="start the daemon")
     add_connection(p_serve)
     p_serve.add_argument("--boards", help="board directory")
-    p_serve.add_argument("--widgets", help="widget directory")
+    p_serve.add_argument("--widgets", help="bundled widget directory")
+    p_serve.add_argument("--custom-widgets", help="custom widget directory")
 
     p_run = sub.add_parser("run", help="run a program on the phone until it exits")
     add_connection(p_run)

@@ -6,3 +6,4 @@ port = 8765
 token = "replace-with-a-long-random-token"
 boards = "boards"
 widgets = "widgets"
+custom_widgets = "custom-widgets"

@@ -2,7 +2,10 @@
 
 The daemon serves a small dashboard at `http://<host>:<port>/`. It is a client
 of the daemon API, not a separate service. There is no build step and no CDN:
-the page works on a local network without internet access.
+the page works on a local network without internet access. The UI is
+Graphite-only, with self-hosted Archivo and IBM Plex Mono. The UI supports
+English and Russian, auto-detects the browser language and remembers the
+RU/EN choice in localStorage.
 
 ## Login
 
@@ -36,14 +39,16 @@ TOML. Invalid boards can still be opened in Source mode and fixed.
 See [boards.md](boards.md) for the file format and a tour of auto/free layouts,
 snap, collision checks, undo/redo, quick layouts and the inspector.
 
-The live preview uses `/ws/preview`, an authenticated WebSocket that runs a
-temporary `Board` and streams real ANSI frames. It never reads or controls the
-phone socket, and it does not change the active board.
+The **Monitor** uses `/ws/preview`, an authenticated WebSocket that runs a
+temporary `Board` and streams real ANSI frames. **Preview**, the expand icon or
+`P` opens it full-screen; `Esc` closes it. It never reads or controls the phone
+socket, and it does not change the active board.
 
 ## Widgets
 
-The catalog lists every directory under `widgets/` with a readable manifest. It
-shows the default size, interval, timeout and optional description. **Test**
+The catalog merges `custom-widgets/` (first) and `widgets/` (bundled), with a
+`CUSTOM` or `BUNDLED` tag. Custom entries override bundled ones with the same id.
+It shows the default size, interval, timeout and optional description. **Test**
 runs the script once at the current display size; **Use in board** opens the new
 board dialog with that widget selected.
 
@@ -75,7 +80,8 @@ and shown in the dashboard.
 | `Ctrl`/`Cmd` + `Z` | Undo |
 | `Ctrl`/`Cmd` + `Shift` + `Z` | Redo |
 | `Delete` | Delete selected cell |
-| `Esc` | Deselect / close dialog |
+| `Esc` | Deselect / close dialog / close full preview |
+| `P` | Open full-screen monitor |
 
 ## Security
 

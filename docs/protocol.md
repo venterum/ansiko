@@ -70,7 +70,7 @@ stops it. Preview never touches the active board, the phone socket or a PTY.
 | `POST` | `/api/boards/{name}/rename` | Rename folder to `{name}`. |
 | `POST` | `/api/push` | Activate a board on the phone. |
 | `POST` | `/api/stop` | Stop the board/session and show idle. |
-| `GET` | `/api/widgets` | Widget manifests and manifest errors. |
+| `GET` | `/api/widgets` | Widget manifests, source (`custom`/`bundled`) and manifest errors. |
 | `POST` | `/api/widgets/run` | Run one widget once for the catalog test button. |
 | `GET` | `/api/pair` | Pairing URL. |
 | `GET` | `/api/pair.svg` | Pairing QR as SVG. |

@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="15" fill="#6ee7b7"/>
-  <path d="M15 16h13v32H15zM36 16h13v32H36z" fill="#052117" opacity=".9"/>
-  <path d="M28 16h8v32h-8z" fill="#052117" opacity=".35"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ansiko">
+  <circle cx="256" cy="256" r="256" fill="#6EE7B7"/>
+  <rect x="166" y="108" width="82" height="172" rx="3" fill="#0B0F0E"/>
+  <rect x="264" y="232" width="82" height="172" rx="3" fill="#0B0F0E"/>
 </svg>

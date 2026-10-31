@@ -76,9 +76,10 @@ Open a board in **Boards** and use the **Layout** tab.
 - **Quick layout** — equal columns, a grid, or a vertical stack.
 - **Inspector** — exact percentages, frame override, duplicate, delete and
   arrow-key nudge.
-- **Live preview** — a temporary board streams the same ANSI frames as the
-  phone. It is not a screenshot; colors and cursor addressing are rendered by a
-  small terminal view.
+- **Monitor** — a temporary board streams the same ANSI frames as the
+  phone. Use **Preview** or the expand icon (or press `P`) for a full-screen
+  terminal; `Esc` closes it. It is not a screenshot; colors and cursor
+  addressing are rendered by a small terminal view.
 - **Source** — the raw TOML. Visual edits normalize formatting; comments are
   best added in Source and kept there.
 
