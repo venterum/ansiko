@@ -2,6 +2,7 @@ package com.vntrum.ansiko
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Build
@@ -16,11 +17,14 @@ import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.google.zxing.integration.android.IntentIntegrator
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -51,6 +55,7 @@ class MainActivity : Activity() {
     private var gaveUp = false
     private var retry: Runnable? = null
     private var settingsDialog: AlertDialog? = null
+    private var pairTarget: ((Pairing) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -271,13 +276,23 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
             isSingleLine = true
         }
+        val scanButton = Button(this).apply {
+            text = getString(R.string.settings_scan)
+            setOnClickListener { startScanner() }
+        }
         form.addView(hostInput)
         form.addView(portInput)
         form.addView(tokenInput)
+        form.addView(scanButton)
+        pairTarget = { pairing ->
+            hostInput.setText(pairing.host)
+            portInput.setText(getString(R.string.settings_port_value, pairing.port))
+            tokenInput.setText(pairing.token)
+        }
 
         val builder = AlertDialog.Builder(this)
             .setTitle(reason ?: getString(R.string.settings_title))
-            .setView(form)
+            .setView(ScrollView(this).apply { addView(form) })
             .setPositiveButton(getString(R.string.settings_save), null)
         if (!firstRun) builder.setNegativeButton(android.R.string.cancel, null)
 
@@ -315,9 +330,36 @@ class MainActivity : Activity() {
                 maybeConnect()
             }
         }
-        dialog.setOnDismissListener { settingsDialog = null }
+        dialog.setOnDismissListener {
+            settingsDialog = null
+            pairTarget = null
+        }
         settingsDialog = dialog
         dialog.show()
+    }
+
+    private fun startScanner() {
+        IntentIntegrator(this)
+            .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+            .setPrompt(getString(R.string.settings_scan_prompt))
+            .setBeepEnabled(false)
+            .setOrientationLocked(false)
+            .initiateScan()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+        if (result == null) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+        val contents = result.contents ?: return
+        val pairing = Pairing.parse(contents)
+        if (pairing == null) {
+            Toast.makeText(this, R.string.settings_pair_invalid, Toast.LENGTH_SHORT).show()
+            return
+        }
+        pairTarget?.invoke(pairing)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()

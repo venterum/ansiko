@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ansiko</title>
+<style>
+:root { color-scheme: dark; --bg:#101214; --card:#1b1f23; --line:#30363d; --fg:#e6edf3; --muted:#8b949e; --accent:#7ce38b; --danger:#ff7b72; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+header { display:flex; align-items:baseline; gap:16px; padding:20px 24px; border-bottom:1px solid var(--line); }
+h1 { margin:0; font-size:20px; letter-spacing:.08em; } h2 { margin:0 0 12px; font-size:15px; }
+main { max-width:1000px; margin:0 auto; padding:24px; display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
+.card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:18px; min-width:0; }
+.wide { grid-column:1 / -1; }
+.muted { color:var(--muted); } .error { color:var(--danger); min-height:1.5em; }
+button, input, textarea { font:inherit; color:var(--fg); background:#0d1117; border:1px solid var(--line); border-radius:6px; padding:8px 10px; }
+button { cursor:pointer; } button:hover { border-color:var(--accent); } button.primary { background:#1f6f43; border-color:#2ea043; }
+button.active { border-color:var(--accent); color:var(--accent); }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+#boards { display:flex; gap:8px; flex-wrap:wrap; }
+textarea { width:100%; min-height:240px; resize:vertical; font-family:ui-monospace,monospace; font-size:13px; }
+#pairQr { width:220px; height:220px; background:#fff; border-radius:6px; padding:8px; image-rendering:pixelated; }
+code { word-break:break-all; color:var(--muted); font-size:12px; }
+.hidden { display:none !important; }
+</style>
+</head>
+<body>
+<header><h1>ansiko</h1><span id="statusLine" class="muted">checking…</span><button id="lock" class="hidden">Lock</button></header>
+<main>
+  <section id="login" class="card wide">
+    <h2>Unlock</h2>
+    <p class="muted">Enter the daemon token from <code>ansiko.local.toml</code>.</p>
+    <div class="row"><input id="token" type="password" autocomplete="current-password" placeholder="token" size="36"><button id="loginBtn" class="primary">Unlock</button></div>
+    <p id="loginError" class="error"></p>
+  </section>
+
+  <div id="app" class="hidden wide">
+    <div style="display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+      <section class="card">
+        <h2>Display</h2>
+        <p id="displayState">—</p>
+        <div class="row"><button id="refresh">Refresh</button></div>
+      </section>
+      <section class="card">
+        <h2>Pair phone</h2>
+        <p class="muted">Scan this with Ansiko. The code contains the server token.</p>
+        <img id="pairQr" alt="Pairing QR code">
+        <p id="hostWarn" class="error"></p>
+        <code id="pairUrl"></code>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px">
+      <h2>Boards</h2>
+      <div id="boards"></div>
+      <div class="row"><input id="newName" placeholder="new-board-name"><button id="newBoard">Create</button></div>
+      <p id="boardMessage" class="muted"></p>
+    </section>
+
+    <section class="card" style="margin-top:16px">
+      <h2 id="editorTitle">Select a board</h2>
+      <textarea id="source" spellcheck="false" placeholder="board.toml"></textarea>
+      <div class="row">
+        <button id="save">Save</button>
+        <button id="push" class="primary">Push to phone</button>
+        <span id="editorMessage" class="muted"></span>
+      </div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let selected = null;
+let timer = null;
+
+async function request(url, options = {}) {
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    showLogin();
+    throw new Error("unauthorized");
+  }
+  if (!response.ok) throw new Error((await response.text()) || response.statusText);
+  return response;
+}
+
+function showLogin() {
+  $("login").classList.remove("hidden");
+  $("app").classList.add("hidden");
+  $("lock").classList.add("hidden");
+  if (timer) clearInterval(timer);
+  timer = null;
+}
+
+function showApp() {
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  $("lock").classList.remove("hidden");
+  if (!timer) timer = setInterval(refreshStatus, 3000);
+}
+
+async function refreshStatus() {
+  try {
+    const status = await (await request("/api/status")).json();
+    const d = status.display;
+    const size = d.connected ? `phone ${d.cols}x${d.rows}` : "phone offline";
+    const mode = status.board.active ? `board ${status.board.name}` :
+      status.session.running ? `terminal: ${status.session.argv.join(" ")}` : "idle";
+    $("statusLine").textContent = `${size} · ${mode}`;
+    $("displayState").textContent = `${size}; ${mode}`;
+  } catch (e) {
+    if (e.message !== "unauthorized") $("displayState").textContent = e.message;
+  }
+}
+
+async function loadBoards(wanted = null) {
+  const names = await (await request("/api/boards")).json();
+  $("boards").replaceChildren();
+  for (const name of names) {
+    const button = document.createElement("button");
+    button.textContent = name;
+    button.onclick = () => selectBoard(name);
+    if (name === selected) button.classList.add("active");
+    $("boards").append(button);
+  }
+  if (wanted && names.includes(wanted)) await selectBoard(wanted);
+  else if (!selected && names.length) await selectBoard(names[0]);
+  if (!names.length) $("boardMessage").textContent = "No boards yet.";
+}
+
+async function selectBoard(name) {
+  selected = name;
+  $("editorTitle").textContent = name;
+  $("source").value = await (await request(`/api/boards/${encodeURIComponent(name)}`)).text();
+  for (const button of $("boards").children) button.classList.toggle("active", button.textContent === name);
+  $("editorMessage").textContent = "";
+}
+
+async function saveBoard() {
+  if (!selected) return;
+  await request(`/api/boards/${encodeURIComponent(selected)}`, {
+    method: "PUT", headers: {"Content-Type": "text/plain"}, body: $("source").value,
+  });
+  $("editorMessage").textContent = "Saved.";
+}
+
+async function pushBoard() {
+  if (!selected) return;
+  await request("/api/push", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({board: selected}),
+  });
+  $("editorMessage").textContent = `Pushed ${selected}.`;
+  await refreshStatus();
+}
+
+async function boot() {
+  const response = await fetch("/api/status");
+  if (response.status === 401) { showLogin(); return; }
+  if (!response.ok) throw new Error(await response.text());
+  showApp();
+  await refreshStatus();
+  await loadBoards();
+  const pair = await (await request("/api/pair")).json();
+  $("pairUrl").textContent = pair.url;
+  $("pairQr").src = `/api/pair.svg?ts=${Date.now()}`;
+  if (["localhost", "127.0.0.1", "::1"].includes(location.hostname)) {
+    $("hostWarn").textContent = "Open this page via the computer's LAN IP, not localhost, or the QR will point the phone at itself.";
+  }
+}
+
+$("loginBtn").onclick = async () => {
+  $("loginError").textContent = "";
+  try {
+    const response = await fetch("/api/login", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({token: $("token").value}),
+    });
+    if (!response.ok) { $("loginError").textContent = "Wrong token."; return; }
+    $("token").value = "";
+    await boot();
+  } catch (e) { $("loginError").textContent = e.message; }
+};
+$("token").addEventListener("keydown", (e) => { if (e.key === "Enter") $("loginBtn").click(); });
+$("lock").onclick = async () => { await fetch("/api/logout", {method: "POST"}); showLogin(); };
+$("refresh").onclick = refreshStatus;
+$("save").onclick = () => saveBoard().catch((e) => { $("editorMessage").textContent = e.message; });
+$("push").onclick = () => pushBoard().catch((e) => { $("editorMessage").textContent = e.message; });
+$("newBoard").onclick = async () => {
+  const name = $("newName").value.trim();
+  if (!name) return;
+  try {
+    await request("/api/boards", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name}),
+    });
+    $("newName").value = "";
+    selected = null;
+    await loadBoards(name);
+  } catch (e) { $("boardMessage").textContent = e.message; }
+};
+boot().catch((e) => { $("loginError").textContent = e.message; });
+</script>
+</body>
+</html>

@@ -86,7 +86,9 @@ def _argv(widget: Widget) -> list[str]:
     return parts
 
 
-async def run_widget(widget: Widget) -> tuple[str, str | None]:
+async def run_widget(
+    widget: Widget, cols: int | None = None, rows: int | None = None
+) -> tuple[str, str | None]:
     """Run one widget once. Returns (stdout, error); never raises for script failures."""
     try:
         argv = _argv(widget)
@@ -94,8 +96,8 @@ async def run_widget(widget: Widget) -> tuple[str, str | None]:
         return "", str(e)
 
     env = os.environ.copy()
-    env["ANSIKO_COLS"] = str(widget.width)
-    env["ANSIKO_ROWS"] = str(widget.height)
+    env["ANSIKO_COLS"] = str(widget.width if cols is None else cols)
+    env["ANSIKO_ROWS"] = str(widget.height if rows is None else rows)
 
     try:
         proc = await asyncio.create_subprocess_exec(

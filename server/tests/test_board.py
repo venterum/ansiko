@@ -82,6 +82,54 @@ def test_compose_clips_to_cell_width():
     assert "abcdef" not in frame
 
 
+def test_compose_draws_title_frame():
+    cell = Cell(widget("clock", 12, 5), width=12, height=5, frame=True)
+    cell.output = "12:34"
+    frame = compose([cell], rows=10).decode()
+    assert "┌ clock" in frame
+    assert "12:34" in frame
+    assert "└" in frame
+
+
+def test_explicit_fractional_cells(tmp_path):
+    widgets_dir = tmp_path / "widgets"
+    write_widget(widgets_dir / "clock", "printf 'x\\n'")
+    boards_dir = tmp_path / "boards"
+    (boards_dir / "grid").mkdir(parents=True)
+    (boards_dir / "grid" / "board.toml").write_text(
+        'name = "grid"\n'
+        "frame = true\n"
+        "[[cells]]\n"
+        'widget = "clock"\n'
+        "x = 0.0\ny = 0.0\nwidth = 0.5\nheight = 1.0\n"
+        "[[cells]]\n"
+        'widget = "clock"\n'
+        "x = 0.5\ny = 0.0\nwidth = 0.5\nheight = 0.5\n"
+        "[[cells]]\n"
+        'widget = "clock"\n'
+        "x = 0.5\ny = 0.5\nwidth = 0.5\nheight = 0.5\n"
+    )
+    spec = load_board("grid", boards_dir, widgets_dir)
+    assert spec.regions is not None
+    assert len(spec.regions) == 3
+    assert spec.regions[0].frame is True
+    board = Board(
+        spec.name,
+        spec.widgets,
+        cols=40,
+        rows=20,
+        emit=lambda frame: None,
+        regions=spec.regions,
+        frame=spec.frame,
+    )
+    assert [(c.x, c.y, c.width, c.height) for c in board.cells] == [
+        (0, 0, 20, 20),
+        (20, 0, 20, 10),
+        (20, 10, 20, 10),
+    ]
+    board.stop()
+
+
 async def test_run_widget_success_timeout_and_failure(tmp_path):
     ok = write_widget(tmp_path / "ok", "printf 'hello\\n'")
     output, error = await run_widget(load_widget(ok))
@@ -133,9 +181,10 @@ async def test_load_board_and_push_endpoint(tmp_path):
         'name = "demo"\nwidgets = ["clock"]\n'
     )
 
-    title, widgets = load_board("demo", boards_dir, widgets_dir)
-    assert title == "demo"
-    assert len(widgets) == 1
+    spec = load_board("demo", boards_dir, widgets_dir)
+    assert spec.name == "demo"
+    assert len(spec.widgets) == 1
+    assert spec.regions is None
 
     app = create_app(TOKEN, boards_dir, widgets_dir)
     async with TestClient(TestServer(app)) as client:

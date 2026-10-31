@@ -36,4 +36,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.github.termux.termux-app:terminal-emulator:v0.118.0")
     implementation("com.github.termux.termux-app:terminal-view:v0.118.0")
+    implementation("androidx.fragment:fragment:1.8.5")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

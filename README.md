@@ -6,8 +6,8 @@ The phone runs a tiny app that does one thing: it shows what your computer sends
 No keyboard, no logic, no state. Type on your computer, watch it appear on the phone, or
 build a wall of ASCII widgets and push it to the screen with one click.
 
-> Status: the daemon, PTY/terminal mode, Android client, and a minimal board mode
-> work. The web editor is the next milestone.
+> Status: the daemon, PTY/terminal mode, Android client, board mode, web UI, and QR
+> pairing work. Widget editing and live preview are the next milestone.
 
 <!-- Put a photo or short video here: phone on a stand, asciiquarium + a currency widget. -->
 
@@ -27,7 +27,8 @@ ansiko run tty-clock -c
 - countdown to anything
 - system stats, weather, build status, whatever a script can print
 
-The first version packs widgets in a row automatically. The web editor comes later.
+Boards can pack widgets automatically or place them in explicit fractional cells with
+server-drawn frames. The web UI edits board files; widget code editing comes later.
 
 The phone doesn't know the difference: in both cases it receives a stream of ANSI bytes
 and draws them.
@@ -61,8 +62,27 @@ ansiko serve --host <lan-ip>
 `ansiko.local.toml` is ignored by git. Keep the server on your local network (or behind
 Tailscale/WireGuard).
 
-Then install the Android app from [Releases](../../releases), or build it from `android/`,
-and enter the same host, port, and token. Long-press the terminal to change them.
+Then install the Android app from [Releases](../../releases), or build it from `android/`:
+
+```sh
+cd android
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Enter the same host, port, and token. Long-press the terminal to change them.
+
+## Web UI and pairing
+
+Open `http://<lan-ip>:8765/` on the computer and enter the token. The page shows the
+display/session state, lists boards, edits their `board.toml`, saves, and pushes them to
+the phone.
+
+The same page shows a pairing QR code. In the app, long-press the terminal, then tap
+**Scan pairing QR**. The QR contains the host, port, and token, so the app fills all three
+fields. The QR is only shown after logging in; keep this page on your LAN.
+
+The web UI edits board files, not widget scripts yet.
 
 ## Widgets
 
@@ -91,19 +111,44 @@ print(time.strftime("%H:%M:%S"))
 ```
 
 The widget receives its size in `ANSIKO_COLS` and `ANSIKO_ROWS`. If a script fails, only
-its own cell shows an error; the rest of the board keeps running. This makes widgets easy
-to write by hand or to generate with an AI assistant: "write a widget that shows X" is a
-ten-line script.
+its own cell shows an error; the rest of the board keeps running. A ten-line script is
+usually enough.
 
-A board lists widget directories:
+A board can list widget directories and let the server pack them:
 
 ```toml
-# boards/default/board.toml
-name = "default"
-widgets = ["clock", "date"]
+# boards/desk/board.toml
+name = "desk"
+widgets = ["clock", "calendar"]
 ```
 
-`clock` and `date` are bundled examples under `widgets/`.
+Or place cells explicitly. Coordinates and sizes are fractions of the phone screen, so
+the board survives rotation:
+
+```toml
+name = "desk"
+frame = true
+
+[[cells]]
+widget = "clock"
+x = 0.0
+y = 0.0
+width = 0.5
+height = 1.0
+
+[[cells]]
+widget = "calendar"
+x = 0.5
+y = 0.0
+width = 0.5
+height = 1.0
+```
+
+`frame = true` asks the server to draw a titled box around every cell. The widget gets
+the inner `ANSIKO_COLS` and `ANSIKO_ROWS`, so it does not need to draw its own border.
+
+This checkout does not bundle widgets yet; create your own under `widgets/`. See the
+`Contributing` section.
 
 Tip: `figlet`, `toilet`, `rich`, and `plotext` are great for big digits, boxes, and charts.
 
@@ -120,15 +165,17 @@ ansiko status             show the connected device and current mode
 
 The daemon is effectively a remote shell. A token is required, and by default it should
 only listen on your local network. Do not expose it to the internet. Put the token in
-`ansiko.local.toml` (ignored by git) rather than in tracked files.
+`ansiko.local.toml` (ignored by git) rather than in tracked files. The web UI login and
+pairing QR both use that token, so use a long random one, not a short PIN.
 
 ## Roadmap
 
 - [x] Daemon: WebSocket + PTY, live `bash` on the phone
 - [x] Android client: read-only terminal view, auto-reconnect, keep screen on
 - [x] Terminal mode CLI (`ansiko run`)
-- [x] Board mode: automatic grid packing, script widgets, scheduler
-- [ ] Web editor: layout preview, widget code, send to device
+- [x] Board mode: auto packing, explicit fractional cells, frames, scheduler
+- [x] Web UI: token login, board list/editor, push, QR pairing
+- [ ] Web editor: widget code and live preview
 - [ ] Extras: page rotation, burn-in protection, tap zones
 
 ## Contributing

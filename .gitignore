@@ -25,6 +25,16 @@ android/local.properties
 *.aab
 .idea/
 
+# --- Local test widgets/boards (not bundled yet) ---
+/widgets/clock/
+/widgets/date/
+/widgets/ttyclock/
+/widgets/weather/
+/widgets/calendar/
+/boards/demo/
+/boards/default/
+server/--token
+
 # --- OS ---
 AGENTS.md
 .DS_Store

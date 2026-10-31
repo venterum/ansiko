@@ -8,6 +8,9 @@
     <string name="settings_port">Port</string>
     <string name="settings_port_value">%1$d</string>
     <string name="settings_token">Token</string>
+    <string name="settings_scan">Scan pairing QR</string>
+    <string name="settings_scan_prompt">Scan the Ansiko pairing code</string>
+    <string name="settings_pair_invalid">Not an Ansiko pairing code.</string>
     <string name="settings_save">Save</string>
     <string name="settings_invalid">Enter a host, a port from 1 to 65535, and a token.</string>
 

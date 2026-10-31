@@ -7,7 +7,7 @@ name = "ansiko"
 version = "0.1.0"
 description = "Stream a Linux PTY or board to a dumb Android display"
 requires-python = ">=3.11"
-dependencies = ["aiohttp>=3.9"]
+dependencies = ["aiohttp>=3.9", "segno>=1.6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=1.0", "ruff>=0.8"]
@@ -17,6 +17,9 @@ ansiko = "ansiko.cli:main"
 
 [tool.setuptools]
 packages = ["ansiko"]
+
+[tool.setuptools.package-data]
+ansiko = ["web/*.html"]
 
 [tool.ruff]
 target-version = "py311"

@@ -11,16 +11,29 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+from importlib.resources import files
 from pathlib import Path
+from urllib.parse import quote
 
+import segno
 from aiohttp import WSMsgType, web
 
 from . import __version__
-from .board import Board, load_board
+from .board import (
+    Board,
+    create_board,
+    list_boards,
+    load_board,
+    read_board_source,
+    save_board_source,
+)
 from .config import DEFAULT_BOARDS, DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_WIDGETS
 from .session import Session
 
 MAX_DIM = 500
+MAX_BOARD_SOURCE = 64 * 1024
+COOKIE_NAME = "ansiko_token"
+INDEX_HTML = files("ansiko").joinpath("web/index.html").read_text(encoding="utf-8")
 DAEMON_KEY = web.AppKey("daemon", "Daemon")
 
 
@@ -195,7 +208,7 @@ class Daemon:
     # --- board ---------------------------------------------------------------
 
     async def activate_board(self, name: str) -> None:
-        title, widgets = load_board(name, self.boards_dir, self.widgets_dir)
+        spec = load_board(name, self.boards_dir, self.widgets_dir)
         if self.session is not None:
             self.session.stop()
             for _ in range(20):
@@ -209,7 +222,15 @@ class Daemon:
 
         if self.board is not None:
             self.board.stop()
-        self.board = Board(title, widgets, self.cols, self.rows, self._emit_board)
+        self.board = Board(
+            spec.name,
+            spec.widgets,
+            self.cols,
+            self.rows,
+            self._emit_board,
+            spec.regions,
+            spec.frame,
+        )
         self.board.start()
         if self.display is not None:
             self.display.send_json({"type": "reset"})
@@ -248,10 +269,12 @@ def _parse_size(msg: dict) -> tuple[int, int] | None:
     return None
 
 
-def _bearer_ok(request: web.Request, daemon: Daemon) -> bool:
+def _auth_ok(request: web.Request, daemon: Daemon) -> bool:
     header = request.headers.get("Authorization", "")
     scheme, _, value = header.partition(" ")
-    return scheme == "Bearer" and daemon.check_token(value)
+    if scheme == "Bearer" and daemon.check_token(value):
+        return True
+    return daemon.check_token(request.cookies.get(COOKIE_NAME))
 
 
 async def display_ws(request: web.Request) -> web.WebSocketResponse:
@@ -298,7 +321,7 @@ async def display_ws(request: web.Request) -> web.WebSocketResponse:
 
 async def session_ws(request: web.Request) -> web.WebSocketResponse:
     daemon: Daemon = request.app[DAEMON_KEY]
-    if not _bearer_ok(request, daemon):
+    if not _auth_ok(request, daemon):
         raise web.HTTPUnauthorized()
     ws = web.WebSocketResponse(heartbeat=20, max_msg_size=1024 * 1024)
     await ws.prepare(request)
@@ -347,14 +370,14 @@ async def session_ws(request: web.Request) -> web.WebSocketResponse:
 
 async def api_status(request: web.Request) -> web.Response:
     daemon: Daemon = request.app[DAEMON_KEY]
-    if not _bearer_ok(request, daemon):
+    if not _auth_ok(request, daemon):
         raise web.HTTPUnauthorized()
     return web.json_response(daemon.status())
 
 
 async def api_push(request: web.Request) -> web.Response:
     daemon: Daemon = request.app[DAEMON_KEY]
-    if not _bearer_ok(request, daemon):
+    if not _auth_ok(request, daemon):
         raise web.HTTPUnauthorized()
     try:
         data = json.loads(await request.text())
@@ -371,6 +394,116 @@ async def api_push(request: web.Request) -> web.Response:
     except (OSError, TypeError, ValueError) as e:
         raise web.HTTPBadRequest(text=str(e)) from None
     return web.json_response(daemon.status())
+
+
+async def index(request: web.Request) -> web.Response:
+    return web.Response(text=INDEX_HTML, content_type="text/html")
+
+
+async def api_login(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    token = data.get("token") if isinstance(data, dict) else None
+    if not daemon.check_token(token):
+        raise web.HTTPUnauthorized(text="wrong token")
+    response = web.json_response({"ok": True})
+    response.set_cookie(
+        COOKIE_NAME, daemon.token, httponly=True, samesite="Strict", path="/"
+    )
+    return response
+
+
+async def api_logout(request: web.Request) -> web.Response:
+    response = web.json_response({"ok": True})
+    response.del_cookie(COOKIE_NAME, path="/")
+    return response
+
+
+def _pair_url(request: web.Request, daemon: Daemon) -> str:
+    host = request.url.host
+    port = request.url.port or 80
+    return (
+        f"ansiko://pair?host={quote(host, safe='')}"
+        f"&port={port}&token={quote(daemon.token, safe='')}"
+    )
+
+
+async def api_pair(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    return web.json_response({"url": _pair_url(request, daemon)})
+
+
+async def api_pair_svg(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    qr = segno.make(_pair_url(request, daemon), error="m")
+    return web.Response(text=qr.svg_inline(), content_type="image/svg+xml")
+
+
+async def api_boards(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    return web.json_response(list_boards(daemon.boards_dir))
+
+
+async def api_board_get(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        source = read_board_source(request.match_info["name"], daemon.boards_dir)
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except ValueError as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.Response(text=source, content_type="text/plain")
+
+
+async def api_board_put(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    source = await request.text()
+    if len(source) > MAX_BOARD_SOURCE:
+        raise web.HTTPRequestEntityTooLarge(
+            max_size=MAX_BOARD_SOURCE, actual_size=len(source)
+        )
+    try:
+        title = save_board_source(
+            request.match_info["name"], source, daemon.boards_dir, daemon.widgets_dir
+        )
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response({"name": request.match_info["name"], "title": title})
+
+
+async def api_board_create(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    name = data.get("name") if isinstance(data, dict) else None
+    if not isinstance(name, str):
+        raise web.HTTPBadRequest(text="expected a board name")
+    try:
+        create_board(name, daemon.boards_dir)
+    except FileExistsError as e:
+        raise web.HTTPConflict(text=str(e)) from None
+    except (OSError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response({"name": name}, status=201)
 
 
 async def _cleanup(app: web.Application) -> None:
@@ -391,10 +524,19 @@ def create_app(
     app[DAEMON_KEY] = Daemon(token, Path(boards_dir), Path(widgets_dir))
     app.add_routes(
         [
+            web.get("/", index),
             web.get("/ws/display", display_ws),
             web.get("/ws/session", session_ws),
             web.get("/api/status", api_status),
             web.post("/api/push", api_push),
+            web.post("/api/login", api_login),
+            web.post("/api/logout", api_logout),
+            web.get("/api/pair", api_pair),
+            web.get("/api/pair.svg", api_pair_svg),
+            web.get("/api/boards", api_boards),
+            web.post("/api/boards", api_board_create),
+            web.get("/api/boards/{name}", api_board_get),
+            web.put("/api/boards/{name}", api_board_put),
         ]
     )
     app.on_cleanup.append(_cleanup)
