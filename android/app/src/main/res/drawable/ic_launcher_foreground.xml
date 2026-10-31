@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The two bars of ansiko.svg, scaled so the 512px glyph circle becomes the
+     72dp visible circle of an adaptive icon (108dp canvas). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#0B0F0E"
+        android:pathData="M41.34,33.19h11.53v24.19h-11.53z" />
+    <path
+        android:fillColor="#0B0F0E"
+        android:pathData="M55.13,50.63h11.53v24.19h-11.53z" />
+</vector>

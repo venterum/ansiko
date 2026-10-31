@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_subtitle">клиент дисплея</string>
+    <string name="settings_connected">● подключено · %1$s</string>
+    <string name="settings_offline">○ нет связи</string>
+    <string name="settings_section_server">сервер</string>
+    <string name="settings_host">хост</string>
+    <string name="settings_port">порт</string>
+    <string name="settings_token">токен</string>
+    <string name="settings_token_hint">токен сопряжения</string>
+    <string name="settings_endpoint_pending">ws://хост:порт/ws/display</string>
+    <string name="settings_section_screen">экран</string>
+    <string name="settings_drift">сдвиг пикселей (защита от выгорания)</string>
+    <string name="settings_dim_night">приглушать ночью (22:00–08:00)</string>
+    <string name="settings_brightness">яркость</string>
+    <string name="settings_scan">[ сканировать QR ]</string>
+    <string name="settings_scan_prompt">Наведите камеру на код сопряжения Ansiko</string>
+    <string name="settings_pair_invalid">Это не код сопряжения Ansiko.</string>
+    <string name="settings_save">[ сохранить ]</string>
+    <string name="settings_invalid">! укажите хост, порт 1–65535 и токен</string>
+
+    <string name="status_connecting">подключение…</string>
+    <string name="status_offline">нет связи — повтор через %1$d с</string>
+    <string name="status_rejected">токен отклонён — долгое нажатие для настроек</string>
+    <string name="status_invalid">неверный адрес сервера — долгое нажатие для настроек</string>
+    <string name="status_no_config">сервер не настроен — долгое нажатие для настроек</string>
+</resources>

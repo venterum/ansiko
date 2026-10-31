@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Same palette as the web UI (server/ansiko/web/app.css). -->
+    <color name="bg">#0B0D0C</color>
+    <color name="surface">#141914</color>
+    <color name="line">#283329</color>
+    <color name="line_strong">#3B493D</color>
+    <color name="fg">#ECECE4</color>
+    <color name="muted">#9AA79C</color>
+    <color name="faint">#65736A</color>
+    <color name="accent">#6EE7B7</color>
+    <color name="accent_strong">#34D399</color>
+    <color name="accent_ink">#06130C</color>
+    <color name="danger">#FF8585</color>
+
+    <color name="ic_launcher_background">#6EE7B7</color>
+</resources>

@@ -2,20 +2,33 @@
 <resources>
     <string name="app_name">Ansiko</string>
 
-    <string name="settings_title">Ansiko settings</string>
-    <string name="settings_token_rejected">Token rejected</string>
-    <string name="settings_host">Host (for example 192.168.1.50)</string>
-    <string name="settings_port">Port</string>
-    <string name="settings_port_value">%1$d</string>
-    <string name="settings_token">Token</string>
-    <string name="settings_scan">Scan pairing QR</string>
+    <string name="settings_subtitle">display client</string>
+    <string name="settings_connected">● connected · %1$s</string>
+    <string name="settings_offline">○ offline</string>
+    <string name="settings_section_server">server</string>
+    <string name="settings_host">host</string>
+    <string name="settings_host_hint">192.168.1.50</string>
+    <string name="settings_port">port</string>
+    <string name="settings_port_hint">8080</string>
+    <string name="settings_token">token</string>
+    <string name="settings_token_hint">pairing token</string>
+    <string name="settings_endpoint_pending">ws://host:port/ws/display</string>
+    <string name="settings_section_screen">screen</string>
+    <string name="settings_drift">pixel shift (burn-in guard)</string>
+    <string name="settings_dim_night">dim at night (22:00–08:00)</string>
+    <string name="settings_brightness">brightness</string>
+    <string name="settings_percent">%1$d%%</string>
+    <string name="settings_minus">[ - ]</string>
+    <string name="settings_plus">[ + ]</string>
+    <string name="settings_scan">[ scan QR ]</string>
     <string name="settings_scan_prompt">Scan the Ansiko pairing code</string>
     <string name="settings_pair_invalid">Not an Ansiko pairing code.</string>
-    <string name="settings_save">Save</string>
-    <string name="settings_invalid">Enter a host, a port from 1 to 65535, and a token.</string>
+    <string name="settings_save">[ save ]</string>
+    <string name="settings_invalid">! enter a host, a port from 1 to 65535, and a token</string>
 
     <string name="status_connecting">connecting…</string>
     <string name="status_offline">offline — retrying in %1$d s</string>
     <string name="status_rejected">token rejected — long-press for settings</string>
     <string name="status_invalid">invalid server address — long-press for settings</string>
+    <string name="status_no_config">no server configured — long-press for settings</string>
 </resources>

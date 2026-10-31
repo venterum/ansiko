@@ -1,15 +1,14 @@
 package com.vntrum.ansiko
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -17,14 +16,8 @@ import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
-import com.google.zxing.integration.android.IntentIntegrator
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -32,6 +25,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import org.json.JSONObject
+import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -54,27 +48,43 @@ class MainActivity : Activity() {
     private var attempt = 0
     private var gaveUp = false
     private var retry: Runnable? = null
-    private var settingsDialog: AlertDialog? = null
-    private var pairTarget: ((Pairing) -> Unit)? = null
+    private var activeConfig: Config? = null
+
+    // Burn-in guard: the panel runs 24/7, so the whole grid drifts around a small ring.
+    private val driftPath = listOf(0 to 0, 1 to -1, 2 to 0, 1 to 1, 0 to 1, -1 to 1, -2 to 0, -1 to -1)
+    private var driftStep = 0
+    private val driftTick = object : Runnable {
+        override fun run() {
+            driftStep = (driftStep + 1) % driftPath.size
+            val (x, y) = driftPath[driftStep]
+            display.animate()
+                .translationX(dp(x).toFloat())
+                .translationY(dp(y).toFloat())
+                .setDuration(DRIFT_ANIM)
+                .start()
+            handler.postDelayed(this, DRIFT_PERIOD)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        prefs = getSharedPreferences("ansiko", MODE_PRIVATE)
+        prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE)
 
         display = TerminalDisplayView(this).apply {
             setOnLongClickListener {
-                showSettings()
+                openSettings()
                 true
             }
             onGridChanged = { c, r -> gridChanged(c, r) }
         }
         status = TextView(this).apply {
-            setTextColor(Color.WHITE)
+            typeface = Typeface.MONOSPACE
+            setTextColor(Color.parseColor("#ECECE4"))
             textSize = 12f
             setPadding(dp(10), dp(4), dp(10), dp(4))
-            setBackgroundColor(0xB3000000.toInt())
-            visibility = View.GONE
+            setBackgroundColor(0xB30B0D0C.toInt())
+            visibility = View.INVISIBLE
         }
 
         val root = FrameLayout(this)
@@ -90,18 +100,37 @@ class MainActivity : Activity() {
         setContentView(root)
         hideSystemUi()
 
-        if (hasConfig()) display.post { maybeConnect() } else showSettings(firstRun = true)
+        if (Config.load(prefs).isComplete()) {
+            display.post { maybeConnect() }
+        } else {
+            setStatus(getString(R.string.status_no_config))
+            display.post { openSettings() }
+        }
     }
 
     override fun onStart() {
         super.onStart()
         started = true
+        if (prefs.getBoolean(Prefs.DRIFT, true)) handler.postDelayed(driftTick, DRIFT_PERIOD)
         maybeConnect()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyBrightness()
+        // The settings screen may have changed the address or the token.
+        if (Config.load(prefs) != activeConfig) {
+            gaveUp = false
+            attempt = 0
+            closeSocket()
+            maybeConnect()
+        }
     }
 
     override fun onStop() {
         started = false
         attempt = 0
+        handler.removeCallbacks(driftTick)
         closeSocket()
         super.onStop()
     }
@@ -126,21 +155,14 @@ class MainActivity : Activity() {
     }
 
     private fun maybeConnect() {
-        if (!started || gaveUp || cols == 0 || socket != null || retry != null || !hasConfig()) return
-
-        val host = prefs.getString(KEY_HOST, "")!!.trim()
-        val port = prefs.getInt(KEY_PORT, 0)
-        val request = try {
-            Request.Builder().url("ws://$host:$port/ws/display").build()
-        } catch (e: IllegalArgumentException) {
-            gaveUp = true
-            setStatus(getString(R.string.status_invalid))
-            return
-        }
+        if (!started || gaveUp || cols == 0 || socket != null || retry != null) return
+        val config = Config.load(prefs)
+        if (!config.isComplete()) return
 
         helloSent = false
+        activeConfig = config
         setStatus(getString(R.string.status_connecting))
-        socket = http.newWebSocket(request, listener)
+        socket = http.newWebSocket(Request.Builder().url(config.url).build(), listener)
     }
 
     private val listener = object : WebSocketListener() {
@@ -196,7 +218,7 @@ class MainActivity : Activity() {
         if (code == 4401) {
             gaveUp = true
             setStatus(getString(R.string.status_rejected))
-            showSettings(reason = getString(R.string.settings_token_rejected))
+            openSettings()
         } else if (started) {
             scheduleRetry()
         }
@@ -229,8 +251,30 @@ class MainActivity : Activity() {
             .put("type", type)
             .put("cols", cols)
             .put("rows", rows)
-        if (type == "hello") message.put("token", prefs.getString(KEY_TOKEN, ""))
+        if (type == "hello") message.put("token", prefs.getString(Prefs.TOKEN, ""))
         webSocket.send(message.toString())
+    }
+
+    /** A panel left at full brightness overnight is what burns an OLED in. */
+    private fun applyBrightness() {
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val night = hour >= Prefs.NIGHT_START || hour < Prefs.NIGHT_END
+        val dimmed = night && prefs.getBoolean(Prefs.DIM_NIGHT, true)
+        val attributes = window.attributes
+        attributes.screenBrightness = if (dimmed) {
+            prefs.getInt(Prefs.BRIGHTNESS, Prefs.BRIGHTNESS_DEFAULT) / 100f
+        } else {
+            WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+        window.attributes = attributes
+    }
+
+    private fun openSettings() {
+        startActivity(
+            Intent(this, SettingsActivity::class.java)
+                .putExtra(SettingsActivity.EXTRA_CONNECTED, socket != null && helloSent)
+                .putExtra(SettingsActivity.EXTRA_GRID, "$cols×$rows"),
+        )
     }
 
     private fun setStatus(text: String) {
@@ -239,127 +283,7 @@ class MainActivity : Activity() {
     }
 
     private fun hideStatus() {
-        status.visibility = View.GONE
-    }
-
-    private fun hasConfig(): Boolean {
-        val host = prefs.getString(KEY_HOST, "")!!.trim()
-        val port = prefs.getInt(KEY_PORT, 0)
-        val token = prefs.getString(KEY_TOKEN, "")!!
-        return host.isNotEmpty() && port in 1..65535 && token.isNotEmpty()
-    }
-
-    private fun showSettings(firstRun: Boolean = false, reason: String? = null) {
-        if (settingsDialog?.isShowing == true) return
-
-        val pad = dp(20)
-        val form = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, 0, pad, 0)
-        }
-        val hostInput = EditText(this).apply {
-            hint = getString(R.string.settings_host)
-            setText(prefs.getString(KEY_HOST, ""))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            isSingleLine = true
-        }
-        val portInput = EditText(this).apply {
-            hint = getString(R.string.settings_port)
-            val port = prefs.getInt(KEY_PORT, 0)
-            if (port != 0) setText(getString(R.string.settings_port_value, port))
-            inputType = InputType.TYPE_CLASS_NUMBER
-            isSingleLine = true
-        }
-        val tokenInput = EditText(this).apply {
-            hint = getString(R.string.settings_token)
-            setText(prefs.getString(KEY_TOKEN, ""))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-            isSingleLine = true
-        }
-        val scanButton = Button(this).apply {
-            text = getString(R.string.settings_scan)
-            setOnClickListener { startScanner() }
-        }
-        form.addView(hostInput)
-        form.addView(portInput)
-        form.addView(tokenInput)
-        form.addView(scanButton)
-        pairTarget = { pairing ->
-            hostInput.setText(pairing.host)
-            portInput.setText(getString(R.string.settings_port_value, pairing.port))
-            tokenInput.setText(pairing.token)
-        }
-
-        val builder = AlertDialog.Builder(this)
-            .setTitle(reason ?: getString(R.string.settings_title))
-            .setView(ScrollView(this).apply { addView(form) })
-            .setPositiveButton(getString(R.string.settings_save), null)
-        if (!firstRun) builder.setNegativeButton(android.R.string.cancel, null)
-
-        val dialog = builder.create()
-        dialog.setCancelable(!firstRun)
-        dialog.setCanceledOnTouchOutside(false)
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val host = hostInput.text.toString().trim()
-                val port = portInput.text.toString().toIntOrNull()
-                val token = tokenInput.text.toString()
-                val urlValid = host.isNotEmpty() && host.none { it.isWhitespace() } &&
-                    port != null && port in 1..65535 &&
-                    try {
-                        Request.Builder().url("ws://$host:$port/ws/display").build()
-                        true
-                    } catch (e: IllegalArgumentException) {
-                        false
-                    }
-                if (!urlValid || token.isEmpty()) {
-                    Toast.makeText(this, R.string.settings_invalid, Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                prefs.edit()
-                    .putString(KEY_HOST, host)
-                    .putInt(KEY_PORT, port)
-                    .putString(KEY_TOKEN, token)
-                    .apply()
-                settingsDialog = null
-                dialog.dismiss()
-                gaveUp = false
-                attempt = 0
-                closeSocket()
-                maybeConnect()
-            }
-        }
-        dialog.setOnDismissListener {
-            settingsDialog = null
-            pairTarget = null
-        }
-        settingsDialog = dialog
-        dialog.show()
-    }
-
-    private fun startScanner() {
-        IntentIntegrator(this)
-            .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-            .setPrompt(getString(R.string.settings_scan_prompt))
-            .setBeepEnabled(false)
-            .setOrientationLocked(false)
-            .initiateScan()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
-        if (result == null) {
-            super.onActivityResult(requestCode, resultCode, data)
-            return
-        }
-        val contents = result.contents ?: return
-        val pairing = Pairing.parse(contents)
-        if (pairing == null) {
-            Toast.makeText(this, R.string.settings_pair_invalid, Toast.LENGTH_SHORT).show()
-            return
-        }
-        pairTarget?.invoke(pairing)
+        status.visibility = View.INVISIBLE
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
@@ -384,8 +308,7 @@ class MainActivity : Activity() {
     }
 
     private companion object {
-        const val KEY_HOST = "host"
-        const val KEY_PORT = "port"
-        const val KEY_TOKEN = "token"
+        const val DRIFT_PERIOD = 60_000L
+        const val DRIFT_ANIM = 1500L
     }
 }

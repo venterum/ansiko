@@ -1,0 +1,37 @@
+name = "Лучшая доска"
+frame = false
+
+[[cells]]
+widget = "music"
+x = 0.65
+y = 0.8
+width = 0.3
+height = 0.2
+
+[[cells]]
+widget = "ttyclock"
+x = 0.05
+y = 0.05
+width = 0.6
+height = 0.6
+
+[[cells]]
+widget = "sysinfo"
+x = 0.35
+y = 0.65
+width = 0.2
+height = 0.25
+
+[[cells]]
+widget = "calendar"
+x = 0.1
+y = 0.65
+width = 0.25
+height = 0.25
+
+[[cells]]
+widget = "music-art"
+x = 0.65
+y = 0.05
+width = 0.3
+height = 0.75
