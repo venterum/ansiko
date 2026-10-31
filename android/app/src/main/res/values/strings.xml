@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ansiko</string>
+
+    <string name="settings_title">Ansiko settings</string>
+    <string name="settings_token_rejected">Token rejected</string>
+    <string name="settings_host">Host (for example 192.168.1.50)</string>
+    <string name="settings_port">Port</string>
+    <string name="settings_port_value">%1$d</string>
+    <string name="settings_token">Token</string>
+    <string name="settings_save">Save</string>
+    <string name="settings_invalid">Enter a host, a port from 1 to 65535, and a token.</string>
+
+    <string name="status_connecting">connecting…</string>
+    <string name="status_offline">offline — retrying in %1$d s</string>
+    <string name="status_rejected">token rejected — long-press for settings</string>
+    <string name="status_invalid">invalid server address — long-press for settings</string>
+</resources>

@@ -6,7 +6,8 @@ The phone runs a tiny app that does one thing: it shows what your computer sends
 No keyboard, no logic, no state. Type on your computer, watch it appear on the phone, or
 build a wall of ASCII widgets and push it to the screen with one click.
 
-> Status: early development. The design below is the plan; things may not exist yet.
+> Status: the daemon, PTY/terminal mode, Android client, and a minimal board mode
+> work. The web editor is the next milestone.
 
 <!-- Put a photo or short video here: phone on a stand, asciiquarium + a currency widget. -->
 
@@ -20,11 +21,13 @@ ansiko run fastfetch
 ansiko run tty-clock -c
 ```
 
-**Board mode.** A grid of widgets, built in a web editor and pushed to the device:
+**Board mode.** A grid of widgets, defined by a board file and pushed to the device:
 
 - exchange rates from any API
 - countdown to anything
 - system stats, weather, build status, whatever a script can print
+
+The first version packs widgets in a row automatically. The web editor comes later.
 
 The phone doesn't know the difference: in both cases it receives a stream of ANSI bytes
 and draws them.
@@ -49,12 +52,17 @@ phone reports when it connects. This is the only thing the phone ever tells the 
 Requires Python 3.11+ on a Linux machine.
 
 ```sh
-uv tool install ansiko      # or: pipx install ansiko
-ansiko serve
+uv tool install ./server    # or: pipx install ./server
+cp ansiko.example.toml ansiko.local.toml
+# edit the token and, for the phone, the LAN address
+ansiko serve --host <lan-ip>
 ```
 
-Then install the Android app from [Releases](../../releases) and enter your server address
-and token. Keep the server on your local network (or behind Tailscale/WireGuard).
+`ansiko.local.toml` is ignored by git. Keep the server on your local network (or behind
+Tailscale/WireGuard).
+
+Then install the Android app from [Releases](../../releases), or build it from `android/`,
+and enter the same host, port, and token. Long-press the terminal to change them.
 
 ## Widgets
 
@@ -87,6 +95,16 @@ its own cell shows an error; the rest of the board keeps running. This makes wid
 to write by hand or to generate with an AI assistant: "write a widget that shows X" is a
 ten-line script.
 
+A board lists widget directories:
+
+```toml
+# boards/default/board.toml
+name = "default"
+widgets = ["clock", "date"]
+```
+
+`clock` and `date` are bundled examples under `widgets/`.
+
 Tip: `figlet`, `toilet`, `rich`, and `plotext` are great for big digits, boxes, and charts.
 
 ## CLI
@@ -95,20 +113,21 @@ Tip: `figlet`, `toilet`, `rich`, and `plotext` are great for big digits, boxes, 
 ansiko serve              start the daemon
 ansiko run <command...>   run a program on the phone until exit / Ctrl+C
 ansiko push <board>       switch the phone to a saved board
-ansiko status             show the connected device and active session
+ansiko status             show the connected device and current mode
 ```
 
 ## Security
 
 The daemon is effectively a remote shell. A token is required, and by default it should
-only listen on your local network. Do not expose it to the internet.
+only listen on your local network. Do not expose it to the internet. Put the token in
+`ansiko.local.toml` (ignored by git) rather than in tracked files.
 
 ## Roadmap
 
-- [ ] Daemon: WebSocket + PTY, live `bash` on the phone
-- [ ] Android client: read-only terminal view, auto-reconnect, keep screen on
-- [ ] Terminal mode CLI (`ansiko run`)
-- [ ] Board mode: grid composition, script widgets, scheduler
+- [x] Daemon: WebSocket + PTY, live `bash` on the phone
+- [x] Android client: read-only terminal view, auto-reconnect, keep screen on
+- [x] Terminal mode CLI (`ansiko run`)
+- [x] Board mode: automatic grid packing, script widgets, scheduler
 - [ ] Web editor: layout preview, widget code, send to device
 - [ ] Extras: page rotation, burn-in protection, tap zones
 

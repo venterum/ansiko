@@ -11,11 +11,13 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
 from . import __version__
-from .config import DEFAULT_COLS, DEFAULT_ROWS
+from .board import Board, load_board
+from .config import DEFAULT_BOARDS, DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_WIDGETS
 from .session import Session
 
 MAX_DIM = 500
@@ -68,7 +70,7 @@ class Outbox:
                 else:
                     await self.ws.close()
                     return
-        except ConnectionError:
+        except (ConnectionError, RuntimeError):
             pass
         finally:
             self.dead = True
@@ -89,13 +91,24 @@ def idle_screen(cols: int, rows: int) -> bytes:
 
 
 class Daemon:
-    def __init__(self, token: str) -> None:
+    def __init__(
+        self,
+        token: str,
+        boards_dir: Path = Path(DEFAULT_BOARDS),
+        widgets_dir: Path = Path(DEFAULT_WIDGETS),
+    ) -> None:
         self.token = token
+        self.boards_dir = boards_dir
+        self.widgets_dir = widgets_dir
         self.display: Outbox | None = None
-        self.cols, self.rows = DEFAULT_COLS, DEFAULT_ROWS  # last size the phone reported
+        self.cols, self.rows = (
+            DEFAULT_COLS,
+            DEFAULT_ROWS,
+        )  # last size the phone reported
         self.session: Session | None = None
         self.owner: Outbox | None = None  # the CLI connection that owns the session
         self.argv: list[str] = []
+        self.board: Board | None = None
 
     def check_token(self, candidate: object) -> bool:
         return isinstance(candidate, str) and secrets.compare_digest(
@@ -110,7 +123,10 @@ class Daemon:
             old.close()
         self.cols, self.rows = cols, rows
         out.send_json({"type": "reset"})
-        if self.session is not None:
+        if self.board is not None:
+            self.board.set_size(cols, rows)
+            self.board.request_render()
+        elif self.session is not None:
             self.session.resize(cols, rows)  # SIGWINCH makes the program redraw for us
         else:
             out.send_bytes(idle_screen(cols, rows))
@@ -118,8 +134,15 @@ class Daemon:
 
     def set_size(self, cols: int, rows: int) -> None:
         self.cols, self.rows = cols, rows
-        if self.session is not None:
+        if self.board is not None:
+            self.board.set_size(cols, rows)
+            self.board.request_render()
+        elif self.session is not None:
             self.session.resize(cols, rows)
+        elif self.display is not None:
+            # No program to redraw the idle screen after a rotation.
+            self.display.send_json({"type": "reset"})
+            self.display.send_bytes(idle_screen(cols, rows))
         self._announce_size()
 
     def detach_display(self, out: Outbox) -> None:
@@ -133,6 +156,9 @@ class Daemon:
     # --- session -------------------------------------------------------------
 
     def start_session(self, argv: list[str], cwd: str | None, owner: Outbox) -> None:
+        if self.board is not None:
+            self.board.stop()
+            self.board = None
         session = Session(
             argv, self.cols, self.rows, self._on_output, self._on_exit, cwd=cwd
         )
@@ -149,6 +175,8 @@ class Daemon:
             self.session.stop()
 
     def _on_output(self, data: bytes) -> None:
+        if self.board is not None:
+            return
         for out in (self.display, self.owner):
             if out is not None:
                 out.send_bytes(data)
@@ -160,9 +188,36 @@ class Daemon:
         self.session = None
         self.owner = None
         self.argv = []
-        if self.display is not None:
+        if self.board is None and self.display is not None:
             self.display.send_json({"type": "reset"})
             self.display.send_bytes(idle_screen(self.cols, self.rows))
+
+    # --- board ---------------------------------------------------------------
+
+    async def activate_board(self, name: str) -> None:
+        title, widgets = load_board(name, self.boards_dir, self.widgets_dir)
+        if self.session is not None:
+            self.session.stop()
+            for _ in range(20):
+                if self.session is None:
+                    break
+                await asyncio.sleep(0.05)
+            if self.session is not None:
+                self.session = None
+                self.owner = None
+                self.argv = []
+
+        if self.board is not None:
+            self.board.stop()
+        self.board = Board(title, widgets, self.cols, self.rows, self._emit_board)
+        self.board.start()
+        if self.display is not None:
+            self.display.send_json({"type": "reset"})
+            self.board.request_render()
+
+    def _emit_board(self, frame: bytes) -> None:
+        if self.board is not None and self.display is not None:
+            self.display.send_bytes(frame)
 
     def status(self) -> dict:
         return {
@@ -173,6 +228,10 @@ class Daemon:
                 "rows": self.rows,
             },
             "session": {"running": self.session is not None, "argv": self.argv},
+            "board": {
+                "active": self.board is not None,
+                "name": self.board.name if self.board is not None else None,
+            },
         }
 
 
@@ -202,7 +261,7 @@ async def display_ws(request: web.Request) -> web.WebSocketResponse:
 
     try:
         hello = await asyncio.wait_for(ws.receive_json(), timeout=10)
-    except (asyncio.TimeoutError, ValueError, TypeError):
+    except (TimeoutError, ValueError, TypeError):
         await ws.close(code=4400, message=b"bad hello")
         return ws
     if (
@@ -251,7 +310,7 @@ async def session_ws(request: web.Request) -> web.WebSocketResponse:
 
     try:
         msg = await asyncio.wait_for(ws.receive_json(), timeout=10)
-    except (asyncio.TimeoutError, ValueError, TypeError):
+    except (TimeoutError, ValueError, TypeError):
         return await fail("expected a start message")
     if not isinstance(msg, dict):
         return await fail("invalid start message")
@@ -277,8 +336,9 @@ async def session_ws(request: web.Request) -> web.WebSocketResponse:
 
     try:
         async for m in ws:
-            if m.type == WSMsgType.BINARY and daemon.owner is out and daemon.session:
-                await daemon.session.write(m.data)
+            session = daemon.session
+            if m.type == WSMsgType.BINARY and daemon.owner is out and session:
+                await session.write(m.data)
     finally:
         daemon.release_session(out)
         out.close()
@@ -292,26 +352,65 @@ async def api_status(request: web.Request) -> web.Response:
     return web.json_response(daemon.status())
 
 
+async def api_push(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _bearer_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    name = data.get("board") if isinstance(data, dict) else None
+    if not isinstance(name, str) or not name:
+        raise web.HTTPBadRequest(text="expected a board name")
+
+    try:
+        await daemon.activate_board(name)
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response(daemon.status())
+
+
 async def _cleanup(app: web.Application) -> None:
     daemon: Daemon = app[DAEMON_KEY]
+    if daemon.board is not None:
+        daemon.board.stop()
     if daemon.session is not None:
         daemon.session.stop()
         await asyncio.sleep(0.2)
 
 
-def create_app(token: str) -> web.Application:
+def create_app(
+    token: str,
+    boards_dir: Path = Path(DEFAULT_BOARDS),
+    widgets_dir: Path = Path(DEFAULT_WIDGETS),
+) -> web.Application:
     app = web.Application()
-    app[DAEMON_KEY] = Daemon(token)
+    app[DAEMON_KEY] = Daemon(token, Path(boards_dir), Path(widgets_dir))
     app.add_routes(
         [
             web.get("/ws/display", display_ws),
             web.get("/ws/session", session_ws),
             web.get("/api/status", api_status),
+            web.post("/api/push", api_push),
         ]
     )
     app.on_cleanup.append(_cleanup)
     return app
 
 
-def serve(host: str, port: int, token: str) -> None:
-    web.run_app(create_app(token), host=host, port=port, print=None)
+def serve(
+    host: str,
+    port: int,
+    token: str,
+    boards_dir: Path = Path(DEFAULT_BOARDS),
+    widgets_dir: Path = Path(DEFAULT_WIDGETS),
+) -> None:
+    web.run_app(
+        create_app(token, boards_dir, widgets_dir),
+        host=host,
+        port=port,
+        print=None,
+    )
