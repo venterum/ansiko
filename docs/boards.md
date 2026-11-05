@@ -1,13 +1,20 @@
 # Boards
 
-A board is a directory under `boards/` with a `board.toml`. It selects widgets
-and places them on a grid. The phone only receives the composed ANSI frame; it
-does not know which widget is which.
+A board is a directory under `boards/` or `custom-boards/` with a `board.toml`.
+It selects widgets and places them on a grid. The phone only receives the
+composed ANSI frame; it does not know which widget is which.
 
 ```
 boards/desk/
 └── board.toml
+
+custom-boards/my-desk/
+└── board.toml
 ```
+
+`custom-boards/` is ignored by git. A custom board with the same folder name
+overrides the bundled one. New boards from the dashboard are created there, and
+editing a bundled board writes a local override instead of changing `boards/`.
 
 ## Automatic packing
 
@@ -124,7 +131,7 @@ writing does not leave a half-written `board.toml`.
 ## Bundled examples
 
 - `boards/desk` — four explicit cells with frames.
-- `boards/focus` — a single clock cell with no frame.
+- `boards/focus` — a framed clock, system info, calendar and now-playing tile.
 - `boards/minimal` — automatic packing with a banner and system info.
 
 Copy them under a new name, or create a board from the web dashboard.

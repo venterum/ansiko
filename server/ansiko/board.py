@@ -32,6 +32,8 @@ from .widgets import Widget, resolve_widget, run_widget, scan_widgets
 
 BOARD_MANIFEST = "board.toml"
 BORDER = "\x1b[36m"
+CUSTOM_SOURCE = "custom"
+BUNDLED_SOURCE = "bundled"
 RESET = "\x1b[0m"
 TEMPLATES = ("auto", "single", "columns", "grid")
 ALIGNS = ("left", "center", "right")
@@ -328,18 +330,51 @@ def _board_data(
     return BoardSpec(title.strip(), widgets, None, frame)
 
 
+def _board_roots(
+    boards_dir: Path, custom_boards_dir: Path | None = None
+) -> list[tuple[Path, str]]:
+    roots: list[tuple[Path, str]] = []
+    if custom_boards_dir is not None:
+        roots.append((custom_boards_dir, CUSTOM_SOURCE))
+    roots.append((boards_dir, BUNDLED_SOURCE))
+    return roots
+
+
+def _find_board(
+    name: str, boards_dir: Path, custom_boards_dir: Path | None = None
+) -> tuple[Path, str]:
+    safe_name(name)
+    for root, source in _board_roots(boards_dir, custom_boards_dir):
+        if (root / name / BOARD_MANIFEST).is_file():
+            return root, source
+    raise FileNotFoundError(f"board not found: {name}")
+
+
+def _board_exists(
+    name: str, boards_dir: Path, custom_boards_dir: Path | None = None
+) -> bool:
+    try:
+        _find_board(name, boards_dir, custom_boards_dir)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _write_board_root(boards_dir: Path, custom_boards_dir: Path | None = None) -> Path:
+    if custom_boards_dir is not None and custom_boards_dir != boards_dir:
+        return custom_boards_dir
+    return boards_dir
+
+
 def load_board(
     name: str,
     boards_dir: Path,
     widgets_dir: Path,
     custom_widgets_dir: Path | None = None,
+    custom_boards_dir: Path | None = None,
 ) -> BoardSpec:
-    safe_name(name)
-    board_file = boards_dir / name / BOARD_MANIFEST
-    if not board_file.is_file():
-        raise FileNotFoundError(f"board not found: {name}")
-
-    with board_file.open("rb") as f:
+    root, _ = _find_board(name, boards_dir, custom_boards_dir)
+    with (root / name / BOARD_MANIFEST).open("rb") as f:
         data = tomllib.load(f)
     return _board_data(data, name, widgets_dir, custom_widgets_dir)
 
@@ -484,22 +519,28 @@ def save_board_source(
     boards_dir: Path,
     widgets_dir: Path,
     custom_widgets_dir: Path | None = None,
+    custom_boards_dir: Path | None = None,
 ) -> str:
-    safe_name(name)
-    path = boards_dir / name / BOARD_MANIFEST
-    if not path.is_file():
-        raise FileNotFoundError(f"board not found: {name}")
+    root, source = _find_board(name, boards_dir, custom_boards_dir)
+    if source == BUNDLED_SOURCE:
+        # Editing a bundled board writes a local override instead of touching the repo.
+        root = _write_board_root(boards_dir, custom_boards_dir)
+    path = root / name / BOARD_MANIFEST
     spec = parse_board_source(text, name, widgets_dir, custom_widgets_dir)
     _write_atomic(path, text)
     return spec.name
 
 
-def list_boards(boards_dir: Path) -> list[str]:
-    if not boards_dir.is_dir():
-        return []
-    return sorted(
-        path.name for path in boards_dir.iterdir() if (path / BOARD_MANIFEST).is_file()
-    )
+def list_boards(boards_dir: Path, custom_boards_dir: Path | None = None) -> list[str]:
+    names: set[str] = set()
+    for root, _ in _board_roots(boards_dir, custom_boards_dir):
+        if root.is_dir():
+            names.update(
+                path.name
+                for path in root.iterdir()
+                if (path / BOARD_MANIFEST).is_file()
+            )
+    return sorted(names)
 
 
 def summarize_board(
@@ -507,11 +548,17 @@ def summarize_board(
     boards_dir: Path,
     widgets_dir: Path,
     custom_widgets_dir: Path | None = None,
+    custom_boards_dir: Path | None = None,
 ) -> dict:
-    path = boards_dir / name / BOARD_MANIFEST
+    try:
+        root, source = _find_board(name, boards_dir, custom_boards_dir)
+    except FileNotFoundError:
+        root, source = boards_dir, None
+    path = root / name / BOARD_MANIFEST
     summary: dict = {
         "name": name,
         "title": name,
+        "source": source,
         "frame": False,
         "mode": None,
         "widget_count": 0,
@@ -520,7 +567,9 @@ def summarize_board(
         "updated": path.stat().st_mtime if path.is_file() else None,
     }
     try:
-        spec = load_board(name, boards_dir, widgets_dir, custom_widgets_dir)
+        spec = load_board(
+            name, boards_dir, widgets_dir, custom_widgets_dir, custom_boards_dir
+        )
     except (OSError, TypeError, ValueError) as e:
         summary["error"] = str(e)
         return summary
@@ -537,20 +586,28 @@ def summarize_board(
 
 
 def list_board_summaries(
-    boards_dir: Path, widgets_dir: Path, custom_widgets_dir: Path | None = None
+    boards_dir: Path,
+    widgets_dir: Path,
+    custom_widgets_dir: Path | None = None,
+    custom_boards_dir: Path | None = None,
 ) -> list[dict]:
     return [
-        summarize_board(name, boards_dir, widgets_dir, custom_widgets_dir)
-        for name in list_boards(boards_dir)
+        summarize_board(
+            name,
+            boards_dir,
+            widgets_dir,
+            custom_widgets_dir,
+            custom_boards_dir,
+        )
+        for name in list_boards(boards_dir, custom_boards_dir)
     ]
 
 
-def read_board_source(name: str, boards_dir: Path) -> str:
-    safe_name(name)
-    path = boards_dir / name / BOARD_MANIFEST
-    if not path.is_file():
-        raise FileNotFoundError(f"board not found: {name}")
-    return path.read_text(encoding="utf-8")
+def read_board_source(
+    name: str, boards_dir: Path, custom_boards_dir: Path | None = None
+) -> str:
+    root, _ = _find_board(name, boards_dir, custom_boards_dir)
+    return (root / name / BOARD_MANIFEST).read_text(encoding="utf-8")
 
 
 def _template_cells(
@@ -598,11 +655,14 @@ def create_board(
     widget_names: Sequence[str] | None = None,
     frame: bool = False,
     custom_widgets_dir: Path | None = None,
+    custom_boards_dir: Path | None = None,
 ) -> None:
     safe_name(name)
     if template not in TEMPLATES:
         raise ValueError(f"unknown board template: {template!r}")
-    path = boards_dir / name
+    if _board_exists(name, boards_dir, custom_boards_dir):
+        raise FileExistsError(f"board already exists: {name}")
+    path = _write_board_root(boards_dir, custom_boards_dir) / name
     if path.exists():
         raise FileExistsError(f"board already exists: {name}")
 
@@ -638,24 +698,25 @@ def create_board(
     _write_atomic(path / BOARD_MANIFEST, source)
 
 
-def delete_board(name: str, boards_dir: Path) -> None:
-    safe_name(name)
-    path = boards_dir / name
-    if not (path / BOARD_MANIFEST).is_file():
-        raise FileNotFoundError(f"board not found: {name}")
-    shutil.rmtree(path)
+def delete_board(
+    name: str, boards_dir: Path, custom_boards_dir: Path | None = None
+) -> None:
+    root, _ = _find_board(name, boards_dir, custom_boards_dir)
+    shutil.rmtree(root / name)
 
 
-def rename_board(name: str, new_name: str, boards_dir: Path) -> None:
-    safe_name(name)
+def rename_board(
+    name: str,
+    new_name: str,
+    boards_dir: Path,
+    custom_boards_dir: Path | None = None,
+) -> None:
     safe_name(new_name)
-    source = boards_dir / name
-    target = boards_dir / new_name
-    if not (source / BOARD_MANIFEST).is_file():
-        raise FileNotFoundError(f"board not found: {name}")
-    if target.exists():
+    root, _ = _find_board(name, boards_dir, custom_boards_dir)
+    target = root / new_name
+    if _board_exists(new_name, boards_dir, custom_boards_dir) or target.exists():
         raise FileExistsError(f"board already exists: {new_name}")
-    source.rename(target)
+    (root / name).rename(target)
 
 
 def duplicate_board(
@@ -664,12 +725,14 @@ def duplicate_board(
     boards_dir: Path,
     widgets_dir: Path,
     custom_widgets_dir: Path | None = None,
+    custom_boards_dir: Path | None = None,
 ) -> None:
-    safe_name(name)
     safe_name(new_name)
-    spec = load_board(name, boards_dir, widgets_dir, custom_widgets_dir)
-    target = boards_dir / new_name
-    if target.exists():
+    spec = load_board(
+        name, boards_dir, widgets_dir, custom_widgets_dir, custom_boards_dir
+    )
+    target = _write_board_root(boards_dir, custom_boards_dir) / new_name
+    if _board_exists(new_name, boards_dir, custom_boards_dir) or target.exists():
         raise FileExistsError(f"board already exists: {new_name}")
     model = board_to_model(spec, new_name)
     model["name"] = new_name

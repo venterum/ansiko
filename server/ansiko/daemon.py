@@ -129,11 +129,13 @@ class Daemon:
         boards_dir: Path = Path(DEFAULT_BOARDS),
         widgets_dir: Path = Path(DEFAULT_WIDGETS),
         custom_widgets_dir: Path | None = None,
+        custom_boards_dir: Path | None = None,
     ) -> None:
         self.token = token
         self.boards_dir = boards_dir
         self.widgets_dir = widgets_dir
         self.custom_widgets_dir = custom_widgets_dir
+        self.custom_boards_dir = custom_boards_dir
         self.display: Outbox | None = None
         self.cols, self.rows = (
             DEFAULT_COLS,
@@ -250,7 +252,11 @@ class Daemon:
 
     async def activate_board(self, name: str) -> None:
         spec = load_board(
-            name, self.boards_dir, self.widgets_dir, self.custom_widgets_dir
+            name,
+            self.boards_dir,
+            self.widgets_dir,
+            self.custom_widgets_dir,
+            self.custom_boards_dir,
         )
         if self.session is not None:
             self.session.stop()
@@ -612,12 +618,15 @@ async def api_boards(request: web.Request) -> web.Response:
         raise web.HTTPUnauthorized()
     if request.query.get("details") in ("1", "true", "yes"):
         summaries = list_board_summaries(
-            daemon.boards_dir, daemon.widgets_dir, daemon.custom_widgets_dir
+            daemon.boards_dir,
+            daemon.widgets_dir,
+            daemon.custom_widgets_dir,
+            daemon.custom_boards_dir,
         )
         for summary in summaries:
             summary["active"] = summary["name"] == daemon.board_folder
         return web.json_response(summaries)
-    return web.json_response(list_boards(daemon.boards_dir))
+    return web.json_response(list_boards(daemon.boards_dir, daemon.custom_boards_dir))
 
 
 async def api_board_get(request: web.Request) -> web.Response:
@@ -625,7 +634,11 @@ async def api_board_get(request: web.Request) -> web.Response:
     if not _auth_ok(request, daemon):
         raise web.HTTPUnauthorized()
     try:
-        source = read_board_source(request.match_info["name"], daemon.boards_dir)
+        source = read_board_source(
+            request.match_info["name"],
+            daemon.boards_dir,
+            daemon.custom_boards_dir,
+        )
     except FileNotFoundError as e:
         raise web.HTTPNotFound(text=str(e)) from None
     except ValueError as e:
@@ -649,6 +662,7 @@ async def api_board_put(request: web.Request) -> web.Response:
             daemon.boards_dir,
             daemon.widgets_dir,
             daemon.custom_widgets_dir,
+            daemon.custom_boards_dir,
         )
     except FileNotFoundError as e:
         raise web.HTTPNotFound(text=str(e)) from None
@@ -724,6 +738,7 @@ async def api_board_create(request: web.Request) -> web.Response:
             widget_names=widget_names,
             frame=frame,
             custom_widgets_dir=daemon.custom_widgets_dir,
+            custom_boards_dir=daemon.custom_boards_dir,
         )
     except FileExistsError as e:
         raise web.HTTPConflict(text=str(e)) from None
@@ -733,7 +748,11 @@ async def api_board_create(request: web.Request) -> web.Response:
         {
             "name": name,
             "board": summarize_board(
-                name, daemon.boards_dir, daemon.widgets_dir, daemon.custom_widgets_dir
+                name,
+                daemon.boards_dir,
+                daemon.widgets_dir,
+                daemon.custom_widgets_dir,
+                daemon.custom_boards_dir,
             ),
         },
         status=201,
@@ -748,7 +767,7 @@ async def api_board_delete(request: web.Request) -> web.Response:
     try:
         if daemon.board_folder == name:
             await daemon.stop_active()
-        delete_board(name, daemon.boards_dir)
+        delete_board(name, daemon.boards_dir, daemon.custom_boards_dir)
     except FileNotFoundError as e:
         raise web.HTTPNotFound(text=str(e)) from None
     except (OSError, TypeError, ValueError) as e:
@@ -774,6 +793,7 @@ async def api_board_duplicate(request: web.Request) -> web.Response:
             daemon.boards_dir,
             daemon.widgets_dir,
             daemon.custom_widgets_dir,
+            daemon.custom_boards_dir,
         )
     except FileExistsError as e:
         raise web.HTTPConflict(text=str(e)) from None
@@ -789,6 +809,7 @@ async def api_board_duplicate(request: web.Request) -> web.Response:
                 daemon.boards_dir,
                 daemon.widgets_dir,
                 daemon.custom_widgets_dir,
+                daemon.custom_boards_dir,
             ),
         },
         status=201,
@@ -808,7 +829,7 @@ async def api_board_rename(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text="expected a new board name")
     old_name = request.match_info["name"]
     try:
-        rename_board(old_name, new_name, daemon.boards_dir)
+        rename_board(old_name, new_name, daemon.boards_dir, daemon.custom_boards_dir)
         daemon.note_renamed_board(old_name, new_name)
     except FileExistsError as e:
         raise web.HTTPConflict(text=str(e)) from None
@@ -824,6 +845,7 @@ async def api_board_rename(request: web.Request) -> web.Response:
                 daemon.boards_dir,
                 daemon.widgets_dir,
                 daemon.custom_widgets_dir,
+                daemon.custom_boards_dir,
             ),
         }
     )
@@ -900,6 +922,7 @@ def create_app(
     boards_dir: Path = Path(DEFAULT_BOARDS),
     widgets_dir: Path = Path(DEFAULT_WIDGETS),
     custom_widgets_dir: Path | None = None,
+    custom_boards_dir: Path | None = None,
 ) -> web.Application:
     app = web.Application()
     app[DAEMON_KEY] = Daemon(
@@ -907,6 +930,7 @@ def create_app(
         Path(boards_dir),
         Path(widgets_dir),
         Path(custom_widgets_dir) if custom_widgets_dir is not None else None,
+        Path(custom_boards_dir) if custom_boards_dir is not None else None,
     )
     app.add_routes(
         [
@@ -947,9 +971,16 @@ def serve(
     boards_dir: Path = Path(DEFAULT_BOARDS),
     widgets_dir: Path = Path(DEFAULT_WIDGETS),
     custom_widgets_dir: Path | None = None,
+    custom_boards_dir: Path | None = None,
 ) -> None:
     web.run_app(
-        create_app(token, boards_dir, widgets_dir, custom_widgets_dir),
+        create_app(
+            token,
+            boards_dir,
+            widgets_dir,
+            custom_widgets_dir,
+            custom_boards_dir,
+        ),
         host=host,
         port=port,
         print=None,

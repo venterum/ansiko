@@ -145,17 +145,17 @@ print(time.strftime("%H:%M:%S"))
 The script gets its allotted size in `ANSIKO_COLS` and `ANSIKO_ROWS`. If it crashes or
 times out, only its own cell shows an error — the rest of the board keeps running.
 
-Bundled examples: `clock`, `calendar`, `sysinfo`, `banner`. Put your own in
-`custom-widgets/` (ignored by git); a custom widget with the same name overrides the
-bundled one.
+Bundled examples: `banner`, `calendar`, `clock`, `date`, `music`, `music-art`,
+`sysinfo`, `ttyclock`, `weather`. Put your own in `custom-widgets/` (ignored by git); a
+custom widget with the same name overrides the bundled one.
 
 > Tip: `figlet`, `toilet`, `rich` and `plotext` make excellent widget output — big
 > digits, boxes and charts.
 
 ## Boards
 
-A board is a directory under `boards/` with a `board.toml`. The simplest form lets the
-server pack widgets for you:
+A board is a directory under `boards/` or `custom-boards/` with a `board.toml`. The
+simplest form lets the server pack widgets for you:
 
 ```toml
 name = "Desk"
@@ -187,6 +187,10 @@ height = 0.62
 
 `frame = true` asks the server to draw a titled box around each cell and subtract the
 border from the widget's area. Bundled boards: `desk`, `demo`, `focus`, `minimal`.
+
+Put your own boards in `custom-boards/` (ignored by git). A custom board with the same
+folder name overrides the bundled one, new boards from the dashboard are created there,
+and editing a bundled board writes a local override instead of modifying `boards/`.
 
 ## Built for a screen that never sleeps
 

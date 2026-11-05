@@ -13,6 +13,7 @@ DEFAULT_PORT = 8765
 DEFAULT_BOARDS = "boards"
 DEFAULT_WIDGETS = "widgets"
 DEFAULT_CUSTOM_WIDGETS = "custom-widgets"
+DEFAULT_CUSTOM_BOARDS = "custom-boards"
 
 CONFIG_ENV = "ANSIKO_CONFIG"
 CONFIG_NAME = "ansiko.local.toml"

@@ -286,6 +286,46 @@ async def test_web_delete_active_board_stops_it(tmp_path):
         assert await (await client.get("/api/boards")).json() == []
 
 
+async def test_web_custom_boards_are_written_locally(tmp_path):
+    widgets = tmp_path / "widgets"
+    boards = tmp_path / "boards"
+    custom = tmp_path / "custom-boards"
+    write_widget(widgets / "clock", "Clock widget")
+    write_board(boards / "demo")
+
+    app = create_app(TOKEN, boards, widgets, None, custom)
+    async with TestClient(TestServer(app)) as client:
+        await client.post("/api/login", json={"token": TOKEN})
+
+        details = await (await client.get("/api/boards?details=1")).json()
+        assert details[0]["source"] == "bundled"
+
+        created = await client.post(
+            "/api/boards",
+            json={"name": "local", "template": "auto", "widgets": ["clock"]},
+        )
+        assert created.status == 201
+        assert (custom / "local" / "board.toml").is_file()
+        assert not (boards / "local").exists()
+        assert (await created.json())["board"]["source"] == "custom"
+        assert "local" in await (await client.get("/api/boards")).json()
+
+        saved = await client.put(
+            "/api/boards/demo",
+            data='name = "Demo local"\nwidgets = ["clock"]\n',
+        )
+        assert saved.status == 200
+        assert (custom / "demo" / "board.toml").is_file()
+        assert 'name = "demo"' in (boards / "demo" / "board.toml").read_text()
+        assert "Demo local" in await (await client.get("/api/boards/demo")).text()
+
+        duplicated = await client.post(
+            "/api/boards/demo/duplicate", json={"name": "copy"}
+        )
+        assert duplicated.status == 201
+        assert (custom / "copy" / "board.toml").is_file()
+
+
 async def test_web_custom_widget_catalog(tmp_path):
     widgets = tmp_path / "widgets"
     custom = tmp_path / "custom-widgets"

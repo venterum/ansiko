@@ -1,0 +1,6 @@
+name = "часы"
+command = "./run.py"
+interval = 1
+width = 60
+height = 20
+timeout = 3

@@ -1,0 +1,6 @@
+name = "date"
+command = "./run.py"
+interval = 5
+width = 24
+height = 3
+timeout = 2

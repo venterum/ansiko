@@ -16,7 +16,9 @@ def main() -> None:
     lines = [title.center(cols)]
     if cols >= 20:
         lines.append("Mo Tu We Th Fr Sa Su"[:cols])
-        weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(today.year, today.month)
+        weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(
+            today.year, today.month
+        )
         for week in weeks:
             cells = []
             for day in week:

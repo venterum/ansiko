@@ -15,11 +15,13 @@ from ansiko.board import (
     create_board,
     delete_board,
     duplicate_board,
+    list_boards,
     load_board,
     parse_board_source,
     place,
     read_board_source,
     rename_board,
+    save_board_source,
     source_from_model,
     summarize_board,
 )
@@ -319,6 +321,87 @@ def test_create_duplicate_rename_delete_board(tmp_path):
     assert summarize_board("renamed", boards_dir, widgets_dir)["valid"] is True
     delete_board("renamed", boards_dir)
     assert not (boards_dir / "renamed" / "board.toml").exists()
+
+
+def test_custom_boards_override_and_write_locally(tmp_path):
+    widgets_dir = tmp_path / "widgets"
+    write_widget(widgets_dir / "clock", "printf 'clock\\n'")
+    write_widget(widgets_dir / "calendar", "printf 'calendar\\n'")
+    boards_dir = tmp_path / "boards"
+    custom_dir = tmp_path / "custom-boards"
+
+    (boards_dir / "desk").mkdir(parents=True)
+    (boards_dir / "desk" / "board.toml").write_text(
+        'name = "Bundled desk"\nwidgets = ["clock"]\n'
+    )
+    (custom_dir / "desk").mkdir(parents=True)
+    (custom_dir / "desk" / "board.toml").write_text(
+        'name = "Custom desk"\nwidgets = ["calendar"]\n'
+    )
+    (boards_dir / "plain").mkdir()
+    (boards_dir / "plain" / "board.toml").write_text(
+        'name = "Plain"\nwidgets = ["clock"]\n'
+    )
+
+    assert list_boards(boards_dir, custom_dir) == ["desk", "plain"]
+    assert (
+        load_board("desk", boards_dir, widgets_dir, None, custom_dir).name
+        == "Custom desk"
+    )
+    summary = summarize_board("desk", boards_dir, widgets_dir, None, custom_dir)
+    assert summary["source"] == "custom"
+    assert summary["title"] == "Custom desk"
+
+    # Saving a bundled board creates a local override.
+    save_board_source(
+        "plain",
+        'name = "Local plain"\nwidgets = ["calendar"]\n',
+        boards_dir,
+        widgets_dir,
+        None,
+        custom_dir,
+    )
+    assert "Local plain" in (custom_dir / "plain" / "board.toml").read_text()
+    assert "Plain" in (boards_dir / "plain" / "board.toml").read_text()
+    assert (
+        summarize_board("plain", boards_dir, widgets_dir, None, custom_dir)["source"]
+        == "custom"
+    )
+
+    create_board(
+        "new",
+        boards_dir,
+        widgets_dir,
+        widget_names=["clock"],
+        custom_boards_dir=custom_dir,
+    )
+    assert (custom_dir / "new" / "board.toml").is_file()
+    assert not (boards_dir / "new").exists()
+
+    duplicate_board("plain", "plain-copy", boards_dir, widgets_dir, None, custom_dir)
+    assert (custom_dir / "plain-copy" / "board.toml").is_file()
+
+    rename_board("new", "renamed", boards_dir, custom_dir)
+    assert (custom_dir / "renamed" / "board.toml").is_file()
+    assert not (custom_dir / "new").exists()
+
+    delete_board("desk", boards_dir, custom_dir)
+    assert not (custom_dir / "desk").exists()
+    assert (
+        summarize_board("desk", boards_dir, widgets_dir, None, custom_dir)["source"]
+        == "bundled"
+    )
+
+    with pytest.raises(FileExistsError):
+        create_board(
+            "plain",
+            boards_dir,
+            widgets_dir,
+            widget_names=["clock"],
+            custom_boards_dir=custom_dir,
+        )
+    with pytest.raises(FileExistsError):
+        rename_board("renamed", "plain", boards_dir, custom_dir)
 
 
 def test_create_board_requires_widgets(tmp_path):

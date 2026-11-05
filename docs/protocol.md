@@ -60,7 +60,7 @@ stops it. Preview never touches the active board, the phone socket or a PTY.
 | `POST` | `/api/logout` | Clear the auth cookie. |
 | `GET` | `/api/session` | Public boolean: is this browser authenticated? |
 | `GET` | `/api/status` | Version, display, session and active board/errors. |
-| `GET` | `/api/boards` | Board names. Add `?details=1` for summaries. |
+| `GET` | `/api/boards` | Board names. Add `?details=1` for summaries with `source`. |
 | `POST` | `/api/boards` | Create from `{name, template, widgets, frame}`. |
 | `POST` | `/api/boards/validate` | Parse source and return a layout model. |
 | `GET` | `/api/boards/{name}` | Read `board.toml` as text. |

@@ -22,12 +22,15 @@ ansiko serve --host 192.168.1.50
 
 ## Boards
 
-The library shows title, folder, layout mode, widget count and validation state.
-Actions:
+The library shows title, folder, source (`CUSTOM` or `BUNDLED`), layout mode,
+widget count and validation state. Custom boards live in `custom-boards/` and
+override bundled boards with the same folder name. Actions:
 
-- **New board** — choose a folder name, a starting template and widgets.
+- **New board** — choose a folder name, a starting template and widgets. The
+  folder is created under `custom-boards/`.
 - **Open** — layout and source editor.
-- **Duplicate** — copies `board.toml`; widget directories are shared.
+- **Duplicate** — copies `board.toml` into `custom-boards/`; widget directories
+  are shared.
 - **Delete** — removes the board folder after confirmation. It does not delete
   widgets. If the board is on the phone, the display returns to idle.
 

@@ -1,0 +1,6 @@
+name = "погода"
+command = "./run.py"
+interval = 60
+width = 30
+height = 10
+timeout = 2

@@ -1,0 +1,7 @@
+name        = "music"
+description = "Now playing track: title, artist and progress"
+command     = "./run.py"
+interval    = 1
+width       = 34
+height      = 4
+timeout     = 3

@@ -550,6 +550,7 @@ function renderBoards() {
 
     const meta = node("div", "board-card-meta");
     meta.append(
+      node("span", `chip source-${board.source || "bundled"}`, t(board.source === "custom" ? "boards.custom" : "boards.bundled")),
       node("span", "chip", board.valid ? (board.mode === "auto" ? t("boards.auto") : t("boards.free")) : t("boards.invalid")),
       node("span", "chip", t("boards.widgets", { n: board.widget_count || 0 })),
     );

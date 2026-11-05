@@ -30,6 +30,8 @@ android/local.properties
 /boards/local/
 /custom-widgets/*
 !/custom-widgets/README.md
+/custom-boards/*
+!/custom-boards/README.md
 server/--token
 
 # --- OS ---

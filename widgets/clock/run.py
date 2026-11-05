@@ -42,7 +42,7 @@ def main() -> None:
     if cols >= len(stamp) * 4 - 1 and rows >= 6:
         big = ["" for _ in range(5)]
         for char in stamp:
-            glyph = FONT.get(char, FONT[":"] )
+            glyph = FONT.get(char, FONT[":"])
             for index in range(5):
                 if big[index]:
                     big[index] += " "

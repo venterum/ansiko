@@ -1,0 +1,7 @@
+name        = "music-art"
+description = "Now playing album art as colored ASCII"
+command     = "./run.py"
+interval    = 1
+width       = 60
+height      = 18
+timeout     = 5
