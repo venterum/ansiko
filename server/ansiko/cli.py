@@ -21,7 +21,9 @@ from .config import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     DEFAULT_WIDGETS,
+    default_dir,
     load_config,
+    user_data_dir,
 )
 
 TOKEN_ENV = "ANSIKO_TOKEN"
@@ -52,7 +54,14 @@ def _require_token(token: str | None) -> str:
 
 def _directory(value: object, default: str, base: Path) -> Path:
     if value is None:
-        value = default
+        local = base / default
+        if local.is_dir():
+            return local
+        if default in (DEFAULT_BOARDS, DEFAULT_WIDGETS):
+            return default_dir(default)
+        # Installed tools must not create custom content inside site-packages
+        # or in a random working directory.
+        return user_data_dir() / default
     if not isinstance(value, str) or not value.strip():
         raise SystemExit("error: board/widget paths must be non-empty strings")
     path = Path(value).expanduser()
@@ -164,6 +173,7 @@ async def _run(args: argparse.Namespace) -> int:
             task.add_done_callback(sends.discard)
 
         reader_added = False
+        remote_exit: int | None = None
         try:
             try:
                 loop.add_reader(stdin_fd, on_stdin)
@@ -184,6 +194,8 @@ async def _run(args: argparse.Namespace) -> int:
                         )
                         break
                     if update.get("type") == "exit":
+                        code = update.get("code")
+                        remote_exit = code if isinstance(code, int) else 1
                         break
                 elif msg.type in (
                     aiohttp.WSMsgType.CLOSE,
@@ -198,7 +210,10 @@ async def _run(args: argparse.Namespace) -> int:
                 termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_term)
             for task in sends:
                 task.cancel()
-    return 0
+    if remote_exit is not None:
+        # Match shell conventions for a program killed by a signal.
+        return remote_exit if remote_exit >= 0 else 128 - remote_exit
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:

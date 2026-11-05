@@ -11,6 +11,7 @@ Daemon -> Web UI:                 binary = raw ANSI frames; JSON text: preview_r
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import re
 import secrets
@@ -43,6 +44,7 @@ from .config import (
     DEFAULT_COLS,
     DEFAULT_ROWS,
     DEFAULT_WIDGETS,
+    default_dir,
 )
 from .session import Session
 from .widgets import resolve_widget, run_widget, scan_widgets
@@ -126,14 +128,20 @@ class Daemon:
     def __init__(
         self,
         token: str,
-        boards_dir: Path = Path(DEFAULT_BOARDS),
-        widgets_dir: Path = Path(DEFAULT_WIDGETS),
+        boards_dir: Path | None = None,
+        widgets_dir: Path | None = None,
         custom_widgets_dir: Path | None = None,
         custom_boards_dir: Path | None = None,
     ) -> None:
         self.token = token
-        self.boards_dir = boards_dir
-        self.widgets_dir = widgets_dir
+        self.boards_dir = (
+            Path(boards_dir) if boards_dir is not None else default_dir(DEFAULT_BOARDS)
+        )
+        self.widgets_dir = (
+            Path(widgets_dir)
+            if widgets_dir is not None
+            else default_dir(DEFAULT_WIDGETS)
+        )
         self.custom_widgets_dir = custom_widgets_dir
         self.custom_boards_dir = custom_boards_dir
         self.display: Outbox | None = None
@@ -146,6 +154,7 @@ class Daemon:
         self.argv: list[str] = []
         self.board: Board | None = None
         self.board_folder: str | None = None
+        self._pending_output: bytearray | None = None
 
     def check_token(self, candidate: object) -> bool:
         return isinstance(candidate, str) and secrets.compare_digest(
@@ -164,7 +173,10 @@ class Daemon:
             self.board.set_size(cols, rows)
             self.board.request_render()
         elif self.session is not None:
-            self.session.resize(cols, rows)  # SIGWINCH makes the program redraw for us
+            self.session.resize(cols, rows)
+            # The phone just cleared its emulator. Force a redraw even when the
+            # grid size did not change, because TIOCSWINSZ alone would be a no-op.
+            self.session.refresh()
         else:
             out.send_bytes(idle_screen(cols, rows))
         self._announce_size()
@@ -193,17 +205,33 @@ class Daemon:
     # --- session -------------------------------------------------------------
 
     def start_session(self, argv: list[str], cwd: str | None, owner: Outbox) -> None:
+        if self.session is not None:
+            raise OSError(errno.EBUSY, "a session is already running")
+        session = Session(
+            argv, self.cols, self.rows, self._on_output, self._on_exit, cwd=cwd
+        )
+        # Start first, stop the board second: a bad cwd or a failed fork must not
+        # take down a healthy board. Output produced during startup is held until
+        # the new session is installed on the display.
+        pending = bytearray()
+        self._pending_output = pending
+        try:
+            session.start()  # may raise OSError
+        except BaseException:
+            self._pending_output = None
+            raise
         if self.board is not None:
             self.board.stop()
             self.board = None
             self.board_folder = None
-        session = Session(
-            argv, self.cols, self.rows, self._on_output, self._on_exit, cwd=cwd
-        )
-        session.start()  # may raise OSError
         self.session, self.owner, self.argv = session, owner, argv
+        self._pending_output = None
         if self.display is not None:
             self.display.send_json({"type": "reset"})
+            if pending:
+                self.display.send_bytes(bytes(pending))
+        if pending:
+            owner.send_bytes(bytes(pending))
         self._announce_size()
 
     def release_session(self, owner: Outbox) -> None:
@@ -213,6 +241,9 @@ class Daemon:
             self.session.stop()
 
     def _on_output(self, data: bytes) -> None:
+        if self._pending_output is not None:
+            self._pending_output.extend(data)
+            return
         if self.board is not None:
             return
         for out in (self.display, self.owner):
@@ -363,6 +394,13 @@ def _board_parse_error(exc: Exception) -> dict:
     if isinstance(exc, tomllib.TOMLDecodeError):
         return _toml_error(exc)
     return {"error": str(exc), "line": None, "column": None}
+
+
+def _missing_board_http(exc: FileNotFoundError) -> web.HTTPException:
+    """A missing folder is 404; a missing widget inside an existing board is 400."""
+    if str(exc).startswith("board not found"):
+        return web.HTTPNotFound(text=str(exc))
+    return web.HTTPBadRequest(text=str(exc))
 
 
 async def display_ws(request: web.Request) -> web.WebSocketResponse:
@@ -554,7 +592,7 @@ async def api_push(request: web.Request) -> web.Response:
     try:
         await daemon.activate_board(name)
     except FileNotFoundError as e:
-        raise web.HTTPNotFound(text=str(e)) from None
+        raise _missing_board_http(e) from None
     except (OSError, TypeError, ValueError) as e:
         raise web.HTTPBadRequest(text=str(e)) from None
     return web.json_response(daemon.status())
@@ -665,7 +703,7 @@ async def api_board_put(request: web.Request) -> web.Response:
             daemon.custom_boards_dir,
         )
     except FileNotFoundError as e:
-        raise web.HTTPNotFound(text=str(e)) from None
+        raise _missing_board_http(e) from None
     except (OSError, TypeError, ValueError, tomllib.TOMLDecodeError) as e:
         raise web.HTTPBadRequest(text=str(e)) from None
     return web.json_response({"name": request.match_info["name"], "title": title})
@@ -765,9 +803,11 @@ async def api_board_delete(request: web.Request) -> web.Response:
         raise web.HTTPUnauthorized()
     name = request.match_info["name"]
     try:
+        # Validate/delete first: a bundled board must not stop the active display
+        # before the guard rejects the request.
+        delete_board(name, daemon.boards_dir, daemon.custom_boards_dir)
         if daemon.board_folder == name:
             await daemon.stop_active()
-        delete_board(name, daemon.boards_dir, daemon.custom_boards_dir)
     except FileNotFoundError as e:
         raise web.HTTPNotFound(text=str(e)) from None
     except (OSError, TypeError, ValueError) as e:
@@ -798,7 +838,7 @@ async def api_board_duplicate(request: web.Request) -> web.Response:
     except FileExistsError as e:
         raise web.HTTPConflict(text=str(e)) from None
     except FileNotFoundError as e:
-        raise web.HTTPNotFound(text=str(e)) from None
+        raise _missing_board_http(e) from None
     except (OSError, TypeError, ValueError) as e:
         raise web.HTTPBadRequest(text=str(e)) from None
     return web.json_response(
@@ -919,16 +959,16 @@ async def _cleanup(app: web.Application) -> None:
 
 def create_app(
     token: str,
-    boards_dir: Path = Path(DEFAULT_BOARDS),
-    widgets_dir: Path = Path(DEFAULT_WIDGETS),
+    boards_dir: Path | None = None,
+    widgets_dir: Path | None = None,
     custom_widgets_dir: Path | None = None,
     custom_boards_dir: Path | None = None,
 ) -> web.Application:
     app = web.Application()
     app[DAEMON_KEY] = Daemon(
         token,
-        Path(boards_dir),
-        Path(widgets_dir),
+        Path(boards_dir) if boards_dir is not None else None,
+        Path(widgets_dir) if widgets_dir is not None else None,
         Path(custom_widgets_dir) if custom_widgets_dir is not None else None,
         Path(custom_boards_dir) if custom_boards_dir is not None else None,
     )
@@ -968,8 +1008,8 @@ def serve(
     host: str,
     port: int,
     token: str,
-    boards_dir: Path = Path(DEFAULT_BOARDS),
-    widgets_dir: Path = Path(DEFAULT_WIDGETS),
+    boards_dir: Path | None = None,
+    widgets_dir: Path | None = None,
     custom_widgets_dir: Path | None = None,
     custom_boards_dir: Path | None = None,
 ) -> None:

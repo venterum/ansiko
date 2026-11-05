@@ -139,6 +139,28 @@ class Session:
         except OSError:
             pass
 
+    def refresh(self) -> None:
+        """Ask the foreground program to redraw after a display reset.
+
+        TIOCSWINSZ only raises SIGWINCH when the size actually changes, so a
+        phone reconnecting at the same grid size would otherwise stay blank.
+        """
+        fd = self._fd
+        if fd is None or self._finished:
+            return
+        try:
+            pgid = os.tcgetpgrp(fd)
+        except OSError:
+            pgid = self._pid
+        if not pgid or pgid <= 0:
+            pgid = self._pid
+        if pgid is None:
+            return
+        try:
+            os.killpg(pgid, signal.SIGWINCH)
+        except (ProcessLookupError, PermissionError):
+            pass
+
     def stop(self) -> None:
         if self._finished:
             return

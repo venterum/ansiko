@@ -104,6 +104,19 @@ an error until the next run.
 - If a widget writes a frame itself, set the board/cell frame off to avoid a
   double border.
 
+## Bundled widgets and optional tools
+
+| Widget | Needs |
+| --- | --- |
+| `banner`, `calendar`, `clock`, `date`, `sysinfo` | Python 3 only |
+| `weather` | outbound HTTPS to Open-Meteo; city/coordinates in `widgets/weather/widget.toml` |
+| `music` | `playerctl` and an MPRIS-capable player |
+| `music-art` | `playerctl`, Pillow (`uv tool install './server[widgets]'`), album art |
+| `ttyclock` | `tty-clock` and `tmux` on the daemon host |
+
+Missing optional tools are reported inside the cell; they do not stop the rest of
+the board. The bundled boards use `clock`, so they work on a fresh install.
+
 ## Custom directory
 
 The daemon reads `custom-widgets/` first and `widgets/` second:
@@ -124,6 +137,12 @@ custom_widgets = "my-widgets"
 or `ansiko serve --custom-widgets my-widgets`. The web catalog shows a
 `CUSTOM` or `BUNDLED` tag for every entry. The board file still references
 the directory id, so no board migration is needed.
+
+When Ansiko is installed as a tool rather than run from a checkout, the bundled
+widgets come from the installed package and the default custom directory is
+`$XDG_DATA_HOME/ansiko/custom-widgets` (usually
+`~/.local/share/ansiko/custom-widgets`). Use an explicit `custom_widgets` path to
+override it.
 
 ## Test a widget
 

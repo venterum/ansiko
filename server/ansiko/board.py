@@ -28,6 +28,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .config import DEFAULT_BOARDS, PACKAGE_RESOURCES, default_dir
 from .widgets import Widget, resolve_widget, run_widget, scan_widgets
 
 BOARD_MANIFEST = "board.toml"
@@ -366,6 +367,15 @@ def _write_board_root(boards_dir: Path, custom_boards_dir: Path | None = None) -
     return boards_dir
 
 
+def _is_bundled_root(boards_dir: Path) -> bool:
+    """True for the repository/package example directory, not a user data dir."""
+    bundled = {
+        default_dir(DEFAULT_BOARDS).resolve(),
+        (PACKAGE_RESOURCES / DEFAULT_BOARDS).resolve(),
+    }
+    return boards_dir.resolve() in bundled
+
+
 def load_board(
     name: str,
     boards_dir: Path,
@@ -701,7 +711,12 @@ def create_board(
 def delete_board(
     name: str, boards_dir: Path, custom_boards_dir: Path | None = None
 ) -> None:
-    root, _ = _find_board(name, boards_dir, custom_boards_dir)
+    root, source = _find_board(name, boards_dir, custom_boards_dir)
+    if source == BUNDLED_SOURCE and _is_bundled_root(boards_dir):
+        raise ValueError(
+            "bundled boards cannot be deleted; duplicate the board into "
+            "custom-boards first"
+        )
     shutil.rmtree(root / name)
 
 
@@ -712,7 +727,12 @@ def rename_board(
     custom_boards_dir: Path | None = None,
 ) -> None:
     safe_name(new_name)
-    root, _ = _find_board(name, boards_dir, custom_boards_dir)
+    root, source = _find_board(name, boards_dir, custom_boards_dir)
+    if source == BUNDLED_SOURCE and _is_bundled_root(boards_dir):
+        raise ValueError(
+            "bundled boards cannot be renamed; duplicate the board into "
+            "custom-boards first"
+        )
     target = root / new_name
     if _board_exists(new_name, boards_dir, custom_boards_dir) or target.exists():
         raise FileExistsError(f"board already exists: {new_name}")

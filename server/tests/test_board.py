@@ -404,6 +404,23 @@ def test_custom_boards_override_and_write_locally(tmp_path):
         rename_board("renamed", "plain", boards_dir, custom_dir)
 
 
+def test_bundled_boards_cannot_be_deleted_or_renamed(tmp_path, monkeypatch):
+    widgets_dir = tmp_path / "widgets"
+    boards_dir = tmp_path / "boards"
+    write_widget(widgets_dir / "clock", "printf 'clock\\n'")
+    (boards_dir / "desk").mkdir(parents=True)
+    (boards_dir / "desk" / "board.toml").write_text(
+        'name = "Desk"\nwidgets = ["clock"]\n'
+    )
+    monkeypatch.setattr("ansiko.board.default_dir", lambda name: boards_dir)
+
+    with pytest.raises(ValueError, match="cannot be deleted"):
+        delete_board("desk", boards_dir)
+    with pytest.raises(ValueError, match="cannot be renamed"):
+        rename_board("desk", "other", boards_dir)
+    assert (boards_dir / "desk" / "board.toml").is_file()
+
+
 def test_create_board_requires_widgets(tmp_path):
     boards_dir = tmp_path / "boards"
     try:

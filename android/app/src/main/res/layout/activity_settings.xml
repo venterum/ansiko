@@ -84,6 +84,7 @@
         <EditText
             android:id="@+id/host"
             style="@style/AnsikoField"
+            android:importantForAutofill="no"
             android:hint="@string/settings_host_hint"
             android:inputType="textUri" />
 
@@ -94,6 +95,7 @@
         <EditText
             android:id="@+id/port"
             style="@style/AnsikoField"
+            android:importantForAutofill="no"
             android:hint="@string/settings_port_hint"
             android:inputType="number"
             android:maxLength="5" />
@@ -105,6 +107,7 @@
         <EditText
             android:id="@+id/token"
             style="@style/AnsikoField"
+            android:importantForAutofill="no"
             android:hint="@string/settings_token_hint"
             android:inputType="textVisiblePassword" />
 
@@ -124,6 +127,16 @@
 
         <CheckBox
             android:id="@+id/dim_night"
+            style="@style/AnsikoText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:button="@null"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp" />
+
+        <CheckBox
+            android:id="@+id/kiosk"
             style="@style/AnsikoText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -190,5 +203,15 @@
             style="@style/AnsikoButton"
             android:layout_marginTop="10dp"
             android:text="@string/settings_scan" />
+
+        <TextView
+            android:id="@+id/version"
+            style="@style/AnsikoText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center"
+            android:textColor="@color/faint"
+            android:textSize="11sp" />
     </LinearLayout>
 </ScrollView>

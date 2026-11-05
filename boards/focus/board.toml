@@ -2,7 +2,7 @@ name = "Focus"
 frame = true
 
 [[cells]]
-widget = "ttyclock"
+widget = "clock"
 x = 0.05
 y = 0.05
 width = 0.6

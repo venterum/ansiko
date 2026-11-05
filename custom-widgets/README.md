@@ -12,8 +12,10 @@ custom-widgets/
 ```
 
 The daemon looks here automatically when you run it from the repository root.
-For another location, set `custom_widgets` in `ansiko.local.toml` or pass
-`--custom-widgets PATH` to `ansiko serve`.
+An installed tool uses `$XDG_DATA_HOME/ansiko/custom-widgets` (usually
+`~/.local/share/ansiko/custom-widgets`) unless you configure another location.
+Set `custom_widgets` in `ansiko.local.toml` or pass `--custom-widgets PATH` to
+`ansiko serve`.
 
 The contents of this directory are ignored by git. Keep tokens, API keys and
 personal data in a local file, not in a tracked widget.

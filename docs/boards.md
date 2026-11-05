@@ -15,6 +15,10 @@ custom-boards/my-desk/
 `custom-boards/` is ignored by git. A custom board with the same folder name
 overrides the bundled one. New boards from the dashboard are created there, and
 editing a bundled board writes a local override instead of changing `boards/`.
+Bundled boards cannot be renamed or deleted in place: use **Duplicate** and edit
+the copy. An installed tool keeps its default custom boards in
+`$XDG_DATA_HOME/ansiko/custom-boards` (usually
+`~/.local/share/ansiko/custom-boards`); a checkout uses the repository directory.
 
 ## Automatic packing
 
@@ -130,8 +134,14 @@ writing does not leave a half-written `board.toml`.
 
 ## Bundled examples
 
+- `boards/default` — a large clock, live weather and calendar.
 - `boards/desk` — four explicit cells with frames.
 - `boards/focus` — a framed clock, system info, calendar and now-playing tile.
 - `boards/minimal` — automatic packing with a banner and system info.
+- `boards/switch` — clock, album art, calendar and now playing.
+- `boards/demo` — the smallest automatic board (`clock`, `date`).
+- `boards/board` — a personal, densely packed example.
 
-Copy them under a new name, or create a board from the web dashboard.
+All of them use dependency-free widgets except the optional `music`/`music-art`
+tiles, which show a short message when `playerctl` is not installed. Copy a board
+under a new name, or create one from the web dashboard.

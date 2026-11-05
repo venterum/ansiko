@@ -578,7 +578,8 @@ function renderBoards() {
     remove.setAttribute("aria-label", t("boards.delete"));
     remove.append(svgIcon("i-trash"));
     remove.addEventListener("click", () => deleteBoard(board.name));
-    actions.append(open, duplicate, remove);
+    actions.append(open, duplicate);
+    if (board.source !== "bundled") actions.append(remove);
     card.append(actions);
     card.addEventListener("click", (event) => {
       if (event.target.closest("button")) return;
@@ -762,7 +763,8 @@ async function openBoard(folder) {
     state.selectedFolder = folder;
     editor.setWidgets(state.widgets);
     editor.setStatus(state.status);
-    editor.load(folder, source, model, error);
+    const summary = state.boards.find((board) => board.name === folder);
+    editor.load(folder, source, model, error, summary?.source || "bundled");
     state.editorDirty = false;
     openBoardView(folder);
     $("viewTitle").textContent = editor.model?.name || folder;

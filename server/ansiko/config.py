@@ -17,6 +17,30 @@ DEFAULT_CUSTOM_BOARDS = "custom-boards"
 
 CONFIG_ENV = "ANSIKO_CONFIG"
 CONFIG_NAME = "ansiko.local.toml"
+PACKAGE_RESOURCES = Path(__file__).parent / "resources"
+
+
+def default_dir(name: str) -> Path:
+    """Resolve a bundled directory.
+
+    A checkout uses the top-level ``boards``/``widgets`` directories. An
+    installed wheel falls back to the examples shipped inside the package, so
+    ``uv tool install`` works from any working directory.
+    """
+    local = Path(name)
+    if local.is_dir():
+        return local
+    packaged = PACKAGE_RESOURCES / name
+    if packaged.is_dir():
+        return packaged
+    return local
+
+
+def user_data_dir() -> Path:
+    """Writable location for custom boards and widgets."""
+    root = os.environ.get("XDG_DATA_HOME")
+    base = Path(root).expanduser() if root else Path.home() / ".local/share"
+    return base / "ansiko"
 
 
 def find_config(value: str | None = None) -> Path | None:

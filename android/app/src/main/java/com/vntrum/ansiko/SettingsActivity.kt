@@ -14,6 +14,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import com.google.zxing.integration.android.IntentIntegrator
+import java.util.Locale
 
 /** Full-screen settings, styled like the monospace terminal the phone displays. */
 class SettingsActivity : Activity() {
@@ -27,6 +28,7 @@ class SettingsActivity : Activity() {
     private lateinit var brightnessValue: TextView
     private lateinit var drift: CheckBox
     private lateinit var dimNight: CheckBox
+    private lateinit var kiosk: CheckBox
     private var brightness = Prefs.BRIGHTNESS_DEFAULT
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,10 +44,11 @@ class SettingsActivity : Activity() {
         brightnessValue = findViewById(R.id.brightness_value)
         drift = findViewById(R.id.drift)
         dimNight = findViewById(R.id.dim_night)
+        kiosk = findViewById(R.id.kiosk)
 
         val config = Config.load(prefs)
         host.setText(config.host)
-        if (config.port != 0) port.setText(config.port.toString())
+        if (config.port != 0) port.setText(String.format(Locale.ROOT, "%d", config.port))
         token.setText(config.token)
 
         val connected = intent.getBooleanExtra(EXTRA_CONNECTED, false)
@@ -68,10 +71,20 @@ class SettingsActivity : Activity() {
 
         drift.isChecked = prefs.getBoolean(Prefs.DRIFT, true)
         dimNight.isChecked = prefs.getBoolean(Prefs.DIM_NIGHT, true)
+        kiosk.isChecked = prefs.getBoolean(Prefs.KIOSK, false)
         paint(drift, R.string.settings_drift)
         paint(dimNight, R.string.settings_dim_night)
+        paint(kiosk, R.string.settings_kiosk)
         drift.setOnClickListener { paint(drift, R.string.settings_drift) }
         dimNight.setOnClickListener { paint(dimNight, R.string.settings_dim_night) }
+        kiosk.setOnClickListener { paint(kiosk, R.string.settings_kiosk) }
+
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+        findViewById<TextView>(R.id.version).text = getString(R.string.settings_version, version)
 
         brightness = prefs.getInt(Prefs.BRIGHTNESS, Prefs.BRIGHTNESS_DEFAULT)
         showBrightness()
@@ -119,6 +132,7 @@ class SettingsActivity : Activity() {
         val portValue = port.text.toString().toIntOrNull()
         val tokenValue = token.text.toString()
         if (!Config.isValid(hostValue, portValue) || tokenValue.isEmpty()) {
+            error.text = getString(R.string.settings_invalid)
             error.visibility = View.VISIBLE
             return
         }
@@ -127,6 +141,7 @@ class SettingsActivity : Activity() {
         prefs.edit()
             .putBoolean(Prefs.DRIFT, drift.isChecked)
             .putBoolean(Prefs.DIM_NIGHT, dimNight.isChecked)
+            .putBoolean(Prefs.KIOSK, kiosk.isChecked)
             .putInt(Prefs.BRIGHTNESS, brightness)
             .apply()
         setResult(RESULT_OK)
@@ -156,7 +171,7 @@ class SettingsActivity : Activity() {
             return
         }
         host.setText(pairing.host)
-        port.setText(pairing.port.toString())
+        port.setText(String.format(Locale.ROOT, "%d", pairing.port))
         token.setText(pairing.token)
     }
 

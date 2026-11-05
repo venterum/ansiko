@@ -327,8 +327,9 @@ export class BoardEditor {
     window.addEventListener("resize", () => this.fitCanvas());
   }
 
-  load(folder, source, model = null, error = null) {
+  load(folder, source, model = null, error = null, sourceKind = null) {
     this.folder = folder;
+    this.sourceKind = sourceKind;
     this.savedSource = source;
     this.rawSource = source;
     this.model = model ? normalizeModel(model, folder) : null;
@@ -341,6 +342,9 @@ export class BoardEditor {
     this.el.sourceEditor.value = source;
     this.el.sourceError.textContent = error ? this.sourceErrorText(error) : "";
     this.updateLineNumbers();
+    const bundled = sourceKind === "bundled";
+    this.el.rename.classList.toggle("hidden", bundled);
+    this.el.delete.classList.toggle("hidden", bundled);
     if (model) this.renderAll();
     else {
       this.renderHeader();
@@ -354,6 +358,7 @@ export class BoardEditor {
 
   unload() {
     this.folder = null;
+    this.sourceKind = null;
     this.model = null;
     this.selectedId = null;
     this.invalidError = null;

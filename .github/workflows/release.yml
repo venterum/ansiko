@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 is not configured" >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ansiko-release.jks"
+          cat > android/keystore.properties <<EOF
+          storeFile=$RUNNER_TEMP/ansiko-release.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Build signed APK
+        working-directory: android
+        run: ./gradlew clean assembleRelease
+
+      - name: Build wheel
+        run: python -m pip wheel ./server -w dist --no-deps
+
+      - name: Verify APK and stage artifacts
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('server/pyproject.toml', 'rb'))['project']['version'])")
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK" | head -1
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          cp "$APK" "$RUNNER_TEMP/release-assets/Ansiko-${VERSION}.apk"
+          cp dist/ansiko-*.whl "$RUNNER_TEMP/release-assets/"
+          (cd "$RUNNER_TEMP/release-assets" && sha256sum * > SHA256SUMS)
+          cat "$RUNNER_TEMP/release-assets/SHA256SUMS"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ runner.temp }}/release-assets/*
+          generate_release_notes: true

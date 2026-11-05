@@ -1,5 +1,5 @@
 name        = "music"
-description = "Now playing track: title, artist and progress"
+description = "Now playing via playerctl (requires playerctl)"
 command     = "./run.py"
 interval    = 1
 width       = 34

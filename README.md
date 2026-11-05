@@ -77,13 +77,17 @@ $EDITOR ansiko.local.toml         # set a long token and your LAN address
 ansiko serve --host 192.168.1.103
 ```
 
-**2. Phone** — install the APK from [Releases](../../releases), or build it:
+**2. Phone** — build and install the APK:
 
 ```sh
 cd android
 ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+A signed release build reads `android/keystore.properties` (ignored by git); see
+[release notes](docs/release.md). Release APKs are attached to GitHub Releases when a
+release is published.
 
 **3. Pair** — open `http://192.168.1.103:8765/` on the computer, log in with the token,
 then in the app long-press the screen and hit **Scan pairing QR**. Or type the host,
@@ -149,6 +153,12 @@ Bundled examples: `banner`, `calendar`, `clock`, `date`, `music`, `music-art`,
 `sysinfo`, `ttyclock`, `weather`. Put your own in `custom-widgets/` (ignored by git); a
 custom widget with the same name overrides the bundled one.
 
+Some examples use optional host tools: `music` needs `playerctl`, `music-art` needs
+`playerctl` and Pillow, and `ttyclock` needs `tty-clock` plus `tmux`. The default boards
+use the dependency-free `clock`, so a fresh install works without them. `weather` uses
+Open-Meteo and needs outbound HTTPS; coordinates and the city live in its
+`widget.toml`.
+
 > Tip: `figlet`, `toilet`, `rich` and `plotext` make excellent widget output — big
 > digits, boxes and charts.
 
@@ -191,6 +201,9 @@ border from the widget's area. Bundled boards: `desk`, `demo`, `focus`, `minimal
 Put your own boards in `custom-boards/` (ignored by git). A custom board with the same
 folder name overrides the bundled one, new boards from the dashboard are created there,
 and editing a bundled board writes a local override instead of modifying `boards/`.
+Bundled boards are read-only in the dashboard: use **Duplicate** before renaming or
+deleting one. Bundled boards: `board`, `default`, `demo`, `desk`, `focus`, `minimal`,
+`switch`.
 
 ## Built for a screen that never sleeps
 
@@ -200,9 +213,13 @@ The phone is meant to hang on a wall for weeks, so the client takes care of the 
   stays in the same physical pixel forever.
 - **Night dimming** — between 22:00 and 08:00 the screen drops to a chosen brightness
   (20–100 %), then returns to normal in the morning.
-- **Immersive, always-on display** — no system bars, no lock screen, no accidental input.
+- **Immersive, always-on display** — system bars hidden, the activity is shown over the
+  lock screen and turns the screen on. An optional **kiosk (screen pinning)** setting keeps
+  accidental swipes from leaving the app. The app also starts after a reboot when it has a
+  saved server configuration; Android 10+ may still require the app to be opened once or
+  to be exempted from background-launch restrictions.
 
-Both burn-in options live in the settings screen and can be turned off.
+Both burn-in options and kiosk mode live in the settings screen and can be turned off.
 
 ## CLI
 
@@ -222,12 +239,17 @@ This is effectively a remote shell on your network, so:
 - keep secrets in `ansiko.local.toml`, which is ignored by git;
 - if you need access from outside, put it behind Tailscale or WireGuard.
 
+The daemon serves plain HTTP/`ws://`, not TLS. Use it on a trusted LAN, or wrap it in
+Tailscale/WireGuard when the network is not trusted. The token is the only
+authentication; do not expose port 8765 directly to the internet.
+
 ## Documentation
 
 - [Widget guide](docs/widgets.md) — manifest, environment, ANSI, errors, testing.
 - [Board format](docs/boards.md) — auto and free layouts, frames, the visual editor.
 - [Web dashboard](docs/web-ui.md) — library, editor, monitor, widgets, pairing, shortcuts.
 - [Protocol](docs/protocol.md) — display, session and preview WebSockets; HTTP API.
+- [Release checklist](docs/release.md) — versions, signing, APK verification and CI.
 
 ## Status
 
@@ -238,7 +260,8 @@ This is effectively a remote shell on your network, so:
 - [x] Web UI: token login, board editor, push, QR pairing
 - [x] Visual editor: drag, resize, snapping, presets, undo/redo, live preview
 - [x] Widget catalog, bundled examples and documentation
-- [x] OLED burn-in protection: pixel shift and night dimming
+- [x] OLED burn-in protection: pixel shift, night dimming, lock-screen display
+- [x] Optional kiosk mode, boot receiver and version display in settings
 - [ ] Page rotation and tap zones
 - [ ] Configurable widgets
 - [ ] Several devices support

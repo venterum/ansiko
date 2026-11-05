@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: python -m pip install -e './server[dev]'
+      - name: Test
+        working-directory: server
+        run: python -m pytest
+      - name: Lint
+        run: |
+          python -m ruff check server/ansiko server/tests
+          python -m ruff format --check server/ansiko server/tests
+      - name: Build wheel and check bundled resources
+        run: |
+          python -m pip wheel ./server -w "$RUNNER_TEMP/wheel" --no-deps
+          WHEEL=$(ls "$RUNNER_TEMP"/wheel/ansiko-*.whl)
+          unzip -l "$WHEEL" | grep -q 'ansiko/resources/boards/desk/board.toml'
+          unzip -l "$WHEEL" | grep -q 'ansiko/resources/widgets/clock/run.py'
+      - name: Check dashboard JavaScript syntax
+        run: |
+          for file in server/ansiko/web/*.js; do
+            node --input-type=module --check < "$file"
+          done
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests
+        working-directory: android
+        run: ./gradlew testDebugUnitTest
+      - name: Assemble debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug

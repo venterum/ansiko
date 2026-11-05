@@ -31,8 +31,9 @@ override bundled boards with the same folder name. Actions:
 - **Open** — layout and source editor.
 - **Duplicate** — copies `board.toml` into `custom-boards/`; widget directories
   are shared.
-- **Delete** — removes the board folder after confirmation. It does not delete
-  widgets. If the board is on the phone, the display returns to idle.
+- **Delete** — removes a custom board folder after confirmation. It does not
+  delete widgets. If the board is on the phone, the display returns to idle.
+  Bundled boards have no Delete/Rename actions; duplicate them first.
 
 The **Ready / Issues** filter helps find boards with a missing widget or invalid
 TOML. Invalid boards can still be opened in Source mode and fixed.
@@ -54,6 +55,10 @@ The catalog merges `custom-widgets/` (first) and `widgets/` (bundled), with a
 It shows the default size, interval, timeout and optional description. **Test**
 runs the script once at the current display size; **Use in board** opens the new
 board dialog with that widget selected.
+
+`music` needs `playerctl`, `music-art` needs `playerctl` and Pillow, and
+`ttyclock` needs `tty-clock` and `tmux`. Missing optional tools are documented in
+the widget guide and do not break the rest of a board.
 
 Manifest errors are listed separately and do not break the rest of the catalog.
 See [widgets.md](widgets.md).

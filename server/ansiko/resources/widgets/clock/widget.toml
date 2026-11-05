@@ -1,0 +1,7 @@
+name        = "clock"
+description = "Local time and date in a large ASCII face"
+command     = "./run.py"
+interval    = 1
+width       = 24
+height      = 6
+timeout     = 2

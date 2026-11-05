@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ CACHE = (
     / "music-art"
 )
 FORMAT = "{{mpris:artUrl}}"
+HAS_PILLOW = importlib.util.find_spec("PIL") is not None
 
 
 def env_int(name: str, default: int) -> int:
@@ -143,6 +145,7 @@ def main() -> int:
     art_rows = art_cols // 2
 
     track: str | None = None
+    missing = ""
     if shutil.which("playerctl"):
         try:
             result = subprocess.run(
@@ -156,17 +159,21 @@ def main() -> int:
             result = None
         track = parse(result.stdout) if result else None
     else:
-        print("playerctl не установлен")
-        return 1
+        missing = "playerctl нет"
 
     art = None
     if track:
-        path = fetch(track)
-        if path:
-            art = render_art(path, art_cols, art_rows)
+        if not HAS_PILLOW:
+            missing = "Pillow нет"
+        else:
+            path = fetch(track)
+            if path:
+                art = render_art(path, art_cols, art_rows)
 
     if art:
         block = art
+    elif missing:
+        block = frame(art_cols, art_rows, missing)
     elif track is None:
         block = frame(art_cols, art_rows, "нет трека")
     else:

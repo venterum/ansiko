@@ -1,0 +1,7 @@
+name        = "music-art"
+description = "Album art as truecolor cells (requires playerctl + Pillow)"
+command     = "./run.py"
+interval    = 1
+width       = 60
+height      = 18
+timeout     = 5

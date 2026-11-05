@@ -1,25 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Ansiko</string>
+    <string name="app_name" translatable="false">Ansiko</string>
 
     <string name="settings_subtitle">display client</string>
     <string name="settings_connected">● connected · %1$s</string>
     <string name="settings_offline">○ offline</string>
     <string name="settings_section_server">server</string>
     <string name="settings_host">host</string>
-    <string name="settings_host_hint">192.168.1.50</string>
+    <string name="settings_host_hint" translatable="false">192.168.1.50</string>
     <string name="settings_port">port</string>
-    <string name="settings_port_hint">8080</string>
+    <string name="settings_port_hint" translatable="false">8765</string>
     <string name="settings_token">token</string>
     <string name="settings_token_hint">pairing token</string>
     <string name="settings_endpoint_pending">ws://host:port/ws/display</string>
     <string name="settings_section_screen">screen</string>
     <string name="settings_drift">pixel shift (burn-in guard)</string>
     <string name="settings_dim_night">dim at night (22:00–08:00)</string>
+    <string name="settings_kiosk">pin this app (kiosk mode)</string>
+    <string name="settings_version">ansiko %1$s</string>
     <string name="settings_brightness">brightness</string>
-    <string name="settings_percent">%1$d%%</string>
-    <string name="settings_minus">[ - ]</string>
-    <string name="settings_plus">[ + ]</string>
+    <string name="settings_percent" translatable="false">%1$d%%</string>
+    <string name="settings_minus" translatable="false">[ - ]</string>
+    <string name="settings_plus" translatable="false">[ + ]</string>
     <string name="settings_scan">[ scan QR ]</string>
     <string name="settings_scan_prompt">Scan the Ansiko pairing code</string>
     <string name="settings_pair_invalid">Not an Ansiko pairing code.</string>

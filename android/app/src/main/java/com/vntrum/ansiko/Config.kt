@@ -19,6 +19,9 @@ object Prefs {
     /** Panel brightness in percent while dimmed. */
     const val BRIGHTNESS = "brightness"
 
+    /** Optional screen pinning for a dedicated wall display. */
+    const val KIOSK = "kiosk"
+
     const val NIGHT_START = 22
     const val NIGHT_END = 8
     const val BRIGHTNESS_DEFAULT = 40

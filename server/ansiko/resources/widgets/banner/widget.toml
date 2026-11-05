@@ -1,0 +1,7 @@
+name        = "banner"
+description = "An ASCII wordmark for the top of a board"
+command     = "./run.py"
+interval    = 60
+width       = 30
+height      = 6
+timeout     = 2

@@ -2,7 +2,7 @@ name = "switch"
 frame = true
 
 [[cells]]
-widget = "ttyclock"
+widget = "clock"
 x = 0
 y = 0
 width = 0.6

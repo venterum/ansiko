@@ -53,15 +53,21 @@ class MainActivity : Activity() {
     // Burn-in guard: the panel runs 24/7, so the whole grid drifts around a small ring.
     private val driftPath = listOf(0 to 0, 1 to -1, 2 to 0, 1 to 1, 0 to 1, -1 to 1, -2 to 0, -1 to -1)
     private var driftStep = 0
-    private val driftTick = object : Runnable {
+    private var kioskRequested = false
+    private val panelTick = object : Runnable {
         override fun run() {
-            driftStep = (driftStep + 1) % driftPath.size
-            val (x, y) = driftPath[driftStep]
-            display.animate()
-                .translationX(dp(x).toFloat())
-                .translationY(dp(y).toFloat())
-                .setDuration(DRIFT_ANIM)
-                .start()
+            // Check the clock every minute, not only when the activity resumes:
+            // a wall display may stay in the foreground across 22:00 and 08:00.
+            applyBrightness()
+            if (prefs.getBoolean(Prefs.DRIFT, true)) {
+                driftStep = (driftStep + 1) % driftPath.size
+                val (x, y) = driftPath[driftStep]
+                display.animate()
+                    .translationX(dp(x).toFloat())
+                    .translationY(dp(y).toFloat())
+                    .setDuration(DRIFT_ANIM)
+                    .start()
+            }
             handler.postDelayed(this, DRIFT_PERIOD)
         }
     }
@@ -69,6 +75,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        applyLockScreenBehavior()
         prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE)
 
         display = TerminalDisplayView(this).apply {
@@ -100,10 +107,19 @@ class MainActivity : Activity() {
         setContentView(root)
         hideSystemUi()
 
-        if (Config.load(prefs).isComplete()) {
+        val config = Config.load(prefs)
+        if (config.isComplete()) {
             display.post { maybeConnect() }
         } else {
-            setStatus(getString(R.string.status_no_config))
+            setStatus(
+                getString(
+                    if (config.host.isNotEmpty() || config.token.isNotEmpty()) {
+                        R.string.status_invalid
+                    } else {
+                        R.string.status_no_config
+                    },
+                ),
+            )
             display.post { openSettings() }
         }
     }
@@ -111,15 +127,19 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         started = true
-        if (prefs.getBoolean(Prefs.DRIFT, true)) handler.postDelayed(driftTick, DRIFT_PERIOD)
+        handler.removeCallbacks(panelTick)
+        handler.post(panelTick)
         maybeConnect()
     }
 
     override fun onResume() {
         super.onResume()
         applyBrightness()
-        // The settings screen may have changed the address or the token.
-        if (Config.load(prefs) != activeConfig) {
+        applyKioskMode()
+        // The settings screen may have changed the address or the token. Also
+        // retry after a rejected token: the server may have been fixed without
+        // changing anything on the phone.
+        if (Config.load(prefs) != activeConfig || gaveUp) {
             gaveUp = false
             attempt = 0
             closeSocket()
@@ -130,7 +150,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         started = false
         attempt = 0
-        handler.removeCallbacks(driftTick)
+        handler.removeCallbacks(panelTick)
         closeSocket()
         super.onStop()
     }
@@ -253,6 +273,32 @@ class MainActivity : Activity() {
             .put("rows", rows)
         if (type == "hello") message.put("token", prefs.getString(Prefs.TOKEN, ""))
         webSocket.send(message.toString())
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyLockScreenBehavior() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD,
+            )
+        }
+    }
+
+    /** Optional screen pinning: keeps accidental swipes from leaving the display. */
+    private fun applyKioskMode() {
+        val wanted = prefs.getBoolean(Prefs.KIOSK, false)
+        if (wanted == kioskRequested) return
+        try {
+            if (wanted) startLockTask() else stopLockTask()
+        } catch (_: Exception) {
+            // Screen pinning can be declined or already be in the requested state.
+        }
+        kioskRequested = wanted
     }
 
     /** A panel left at full brightness overnight is what burns an OLED in. */

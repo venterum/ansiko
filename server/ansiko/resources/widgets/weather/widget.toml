@@ -1,0 +1,11 @@
+name        = "погода"
+description = "Текущая погода через Open-Meteo; координаты и город — в этом файле"
+command     = "./run.py"
+interval    = 60
+width       = 30
+height      = 10
+timeout     = 6
+latitude    = 59.9343
+longitude   = 30.3351
+city        = "САНКТ-ПЕТЕРБУРГ"
+timezone    = "Europe/Moscow"

@@ -1,4 +1,5 @@
-name = "часы"
+name = "часы (tty-clock)"
+description = "Large ncurses clock (requires tty-clock and tmux)"
 command = "./run.py"
 interval = 1
 width = 60

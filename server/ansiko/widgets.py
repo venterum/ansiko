@@ -6,6 +6,7 @@ import asyncio
 import os
 import shlex
 import shutil
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -166,7 +167,11 @@ def _argv(widget: Widget) -> list[str]:
         path = (widget.directory / first).resolve()
         if not path.exists():
             raise FileNotFoundError(f"command not found: {path}")
-        parts[0] = str(path)
+        if path.suffix == ".py" and not os.access(path, os.X_OK):
+            # Wheels do not reliably preserve executable bits on data files.
+            parts = [sys.executable, str(path), *parts[1:]]
+        else:
+            parts[0] = str(path)
     elif shutil.which(first) is None:
         local = widget.directory / first
         if local.exists():

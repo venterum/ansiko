@@ -1,0 +1,7 @@
+name        = "music"
+description = "Now playing via playerctl (requires playerctl)"
+command     = "./run.py"
+interval    = 1
+width       = 34
+height      = 4
+timeout     = 3

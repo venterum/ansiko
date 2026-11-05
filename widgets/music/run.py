@@ -76,8 +76,8 @@ def main() -> int:
     cols = env_int("ANSIKO_COLS", 30)
     rows = env_int("ANSIKO_ROWS", 6)
     if not shutil.which("playerctl"):
-        print("playerctl не установлен")
-        return 1
+        print("playerctl нет".center(cols))
+        return 0
 
     try:
         result = subprocess.run(
