@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Widget manifests can declare `[[settings]]`; the dashboard renders selects,
+  toggles, number fields and sliders, and edits a bundled widget through a local
+  copy in `custom-widgets/`.
+- `ansiko install-systemd` installs, enables and starts a systemd user service.
+- `ansiko serve` prints the dashboard URL on startup.
+
 ## 0.2.0
 
 - Bundled boards and widgets are now shipped inside the wheel, so

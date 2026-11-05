@@ -47,7 +47,7 @@ from .config import (
     default_dir,
 )
 from .session import Session
-from .widgets import resolve_widget, run_widget, scan_widgets
+from .widgets import resolve_widget, run_widget, save_widget_settings, scan_widgets
 
 MAX_DIM = 500
 MAX_BOARD_SOURCE = 64 * 1024
@@ -650,6 +650,39 @@ async def api_widget_run(request: web.Request) -> web.Response:
     return web.json_response({"output": output, "error": error})
 
 
+async def api_widget_settings(request: web.Request) -> web.Response:
+    daemon: Daemon = request.app[DAEMON_KEY]
+    if not _auth_ok(request, daemon):
+        raise web.HTTPUnauthorized()
+    try:
+        data = json.loads(await request.text())
+    except ValueError:
+        raise web.HTTPBadRequest(text="invalid JSON") from None
+    if not isinstance(data, dict) or not isinstance(data.get("settings"), dict):
+        raise web.HTTPBadRequest(text="expected a settings object")
+    try:
+        widget = resolve_widget(
+            safe_name(request.match_info["name"]),
+            daemon.widgets_dir,
+            daemon.custom_widgets_dir,
+        )
+    except FileNotFoundError as e:
+        raise web.HTTPNotFound(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    try:
+        widget = save_widget_settings(
+            widget,
+            data["settings"],
+            daemon.custom_widgets_dir,
+        )
+    except FileExistsError as e:
+        raise web.HTTPConflict(text=str(e)) from None
+    except (OSError, TypeError, ValueError) as e:
+        raise web.HTTPBadRequest(text=str(e)) from None
+    return web.json_response({"widget": widget.to_dict()})
+
+
 async def api_boards(request: web.Request) -> web.Response:
     daemon: Daemon = request.app[DAEMON_KEY]
     if not _auth_ok(request, daemon):
@@ -988,6 +1021,7 @@ def create_app(
             web.get("/api/pair.svg", api_pair_svg),
             web.get("/api/widgets", api_widgets),
             web.post("/api/widgets/run", api_widget_run),
+            web.post("/api/widgets/{name}/settings", api_widget_settings),
             web.get("/api/boards", api_boards),
             web.post("/api/boards", api_board_create),
             web.post("/api/boards/validate", api_board_validate),

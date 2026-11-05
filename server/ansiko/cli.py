@@ -7,6 +7,8 @@ import asyncio
 import json
 import os
 import secrets
+import shutil
+import subprocess
 import sys
 import termios
 import tty
@@ -88,11 +90,12 @@ def _serve(args: argparse.Namespace) -> int:
         base,
     )
 
-    print(
-        f"ansiko {__version__} on ws://{host}:{port}/ws/display",
-        file=sys.stderr,
-        flush=True,
-    )
+    web_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    if ":" in web_host:
+        web_host = f"[{web_host}]"
+    print(f"ansiko {__version__}", file=sys.stderr, flush=True)
+    print(f"web: http://{web_host}:{port}/", file=sys.stderr, flush=True)
+    print(f"ws:  ws://{host}:{port}/ws/display", file=sys.stderr, flush=True)
     from .daemon import serve
 
     serve(host, port, token, boards, widgets, custom_widgets, custom_boards)
@@ -216,6 +219,73 @@ async def _run(args: argparse.Namespace) -> int:
     return 1
 
 
+def _systemd_quote(value: str) -> str:
+    escaped = value.replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _systemd_path(value: str) -> str:
+    # WorkingDirectory= does not strip quotes; it takes the rest of the line raw.
+    return value.replace("%", "%%")
+
+
+def _install_systemd(args: argparse.Namespace) -> int:
+    data, path = load_config(args.config)
+    if path is None:
+        raise SystemExit(
+            f"error: config not found; create {CONFIG_NAME} or pass --config"
+        )
+    path = path.resolve()
+    token = data.get("token")
+    if (
+        not isinstance(token, str)
+        or not token.strip()
+        or token == "replace-with-a-long-random-token"
+    ):
+        raise SystemExit(f"error: set a stable token in {path}")
+    executable = shutil.which("ansiko")
+    if executable is None:
+        candidate = Path(sys.argv[0]).resolve()
+        if candidate.is_file() and candidate.name == "ansiko":
+            executable = str(candidate)
+        else:
+            raise SystemExit("error: ansiko executable not found in PATH")
+    config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    unit_dir = Path(config_home) / "systemd" / "user"
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    unit = unit_dir / "ansiko.service"
+    unit.write_text(
+        "[Unit]\n"
+        "Description=Ansiko display daemon\n"
+        "\n"
+        "[Service]\n"
+        "Type=simple\n"
+        f"WorkingDirectory={_systemd_path(str(path.parent))}\n"
+        f"ExecStart={_systemd_quote(executable)} serve --config {_systemd_quote(str(path))}\n"
+        "Restart=on-failure\n"
+        "RestartSec=3\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=default.target\n",
+        encoding="utf-8",
+    )
+    try:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        command = ["systemctl", "--user", "enable"]
+        if not args.no_start:
+            command.append("--now")
+        command.append("ansiko.service")
+        subprocess.run(command, check=True)
+    except FileNotFoundError:
+        raise SystemExit("error: systemctl not found; is systemd installed?") from None
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(f"error: systemctl failed: {e}") from None
+    print(f"installed {unit}")
+    print("status: systemctl --user status ansiko.service")
+    print("logs:   journalctl --user -u ansiko.service -f")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ansiko")
     parser.add_argument("--version", action="version", version=__version__)
@@ -233,6 +303,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--widgets", help="bundled widget directory")
     p_serve.add_argument("--custom-widgets", help="custom widget directory")
     p_serve.add_argument("--custom-boards", help="custom board directory")
+
+    p_install = sub.add_parser("install-systemd", help="install a systemd user service")
+    p_install.add_argument("--config", help=f"TOML config (default: {CONFIG_NAME})")
+    p_install.add_argument(
+        "--no-start",
+        action="store_true",
+        help="enable the service but do not start it now",
+    )
 
     p_run = sub.add_parser("run", help="run a program on the phone until it exits")
     add_connection(p_run)
@@ -259,6 +337,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.action == "serve":
             return _serve(args)
+        if args.action == "install-systemd":
+            return _install_systemd(args)
         if args.action == "status":
             return asyncio.run(_status(args))
         if args.action == "push":

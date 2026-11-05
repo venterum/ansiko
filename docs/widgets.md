@@ -44,6 +44,51 @@ executed directly. If the command starts with a shell builtin, wrap it:
 command = "/bin/sh -c 'printf hello'"
 ```
 
+## Settings in the web UI
+
+Declare editable values with one `[[settings]]` block per key:
+
+```toml
+style = "blocks"
+
+[[settings]]
+key = "style"
+type = "select"
+label = "Art style"
+options = ["blocks", "ascii", "ascii-rgb"]
+default = "blocks"
+
+[[settings]]
+key = "ascii_gamma"
+type = "range"
+label = "Gamma"
+min = 0.1
+max = 2.0
+step = 0.05
+default = 0.8
+```
+
+The current value is the top-level key with the same name. If the key is
+missing, `default` is shown. The catalog then gets a **Settings** button with a
+form: selects, toggles, text and number fields, and sliders for `range`. Saving
+writes the value back to `widget.toml`; the script reads it as usual.
+
+| `type` | UI | Extra keys |
+| --- | --- | --- |
+| `select` | Dropdown | `options` (non-empty list), `default` |
+| `range` | Slider + value | `min`, `max`, optional `step`, `default` |
+| `number` | Number input | optional `min`, `max`, `step`, `default` |
+| `text` | Text input | `default` |
+| `toggle` | Checkbox | `default` (`true`/`false`) |
+
+`label` and optional `help` are shown in the form. Keys must be unique and must
+not reuse `name`, `description`, `command`, `interval`, `width`, `height`,
+`timeout` or `settings`. Values must be scalar (string, number or boolean).
+
+Editing a bundled widget creates a local copy in `custom-widgets/` (or the
+configured custom directory) and writes settings there, so the checkout and the
+installed package stay untouched.
+
 ## What the script receives
 
 | Value | Meaning |

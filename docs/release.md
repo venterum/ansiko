@@ -2,7 +2,7 @@
 
 ## Versions
 
-The Python package and the Android app share `0.2.0`. Bump `server/pyproject.toml`,
+The Python package and the Android app share `0.3.0`. Bump `server/pyproject.toml`,
 `server/ansiko/__init__.py`, `android/app/build.gradle.kts` (`versionName` and
 `versionCode`) together. `versionCode` must increase for every APK delivered to a phone.
 

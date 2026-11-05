@@ -2,6 +2,7 @@ const dictionaries = {
   en: {
     "common.cancel": "Cancel",
     "common.close": "Close",
+    "common.save": "Save",
     "common.delete": "Delete",
     "common.continue": "Continue",
     "common.open": "Open",
@@ -152,6 +153,11 @@ const dictionaries = {
     "widgets.noOutput": "(no output)",
     "widgets.error": "Error: {message}",
     "widgets.copyPathAria": "Copy path of {name}",
+    "widgets.settings": "Settings",
+    "widgets.settingsTitle": "{name} settings",
+    "widgets.settingsSaved": "Settings saved.",
+    "widgets.settingsError": "Could not save settings: {message}",
+    "widgets.settingsBundled": "This is a bundled widget. Saving creates a local copy in custom-widgets/ and edits that copy.",
 
     "pair.eyebrow": "Device",
     "pair.title": "Pair the phone",
@@ -349,6 +355,7 @@ timeout     = 2</pre>
   ru: {
     "common.cancel": "Отмена",
     "common.close": "Закрыть",
+    "common.save": "Сохранить",
     "common.delete": "Удалить",
     "common.continue": "Продолжить",
     "common.open": "Открыть",
@@ -499,6 +506,11 @@ timeout     = 2</pre>
     "widgets.noOutput": "(нет вывода)",
     "widgets.error": "Ошибка: {message}",
     "widgets.copyPathAria": "Скопировать путь к {name}",
+    "widgets.settings": "Настройки",
+    "widgets.settingsTitle": "Настройки {name}",
+    "widgets.settingsSaved": "Настройки сохранены.",
+    "widgets.settingsError": "Не удалось сохранить настройки: {message}",
+    "widgets.settingsBundled": "Это встроенный виджет. При сохранении будет создана локальная копия в custom-widgets/, и изменения попадут в неё.",
 
     "pair.eyebrow": "Устройство",
     "pair.title": "Сопряжение телефона",

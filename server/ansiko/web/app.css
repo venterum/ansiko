@@ -956,6 +956,11 @@ body.preview-open { overflow: hidden; }
 .form-stack { display: grid; gap: 14px; }
 .form-row { display: grid; gap: 6px; }
 .form-row > label { color: var(--muted); font: 500 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.setting-help { margin: 0; font-size: 11px; }
+.setting-range { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; }
+.setting-range input[type="range"] { height: 24px; padding: 0; border: 0; background: transparent; }
+.setting-value { min-width: 4ch; text-align: right; color: var(--fg); font: 500 12px/1 var(--mono); }
+.setting-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
 .choice-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
 .choice-grid button {
   display: grid;

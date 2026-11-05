@@ -463,8 +463,8 @@ async function refreshStatus({ quiet = false } = {}) {
 function renderStatus() {
   const status = state.status;
   if (!status) return;
-  $("versionLabel").textContent = `v${status.version || "0.2.0"}`;
-  $("statusVersion").textContent = `v${status.version || "0.2.0"}`;
+  $("versionLabel").textContent = `v${status.version || "0.3.0"}`;
+  $("statusVersion").textContent = `v${status.version || "0.3.0"}`;
   $("statusSize").textContent = `${status.display.cols} × ${status.display.rows}`;
   $("previewSize").textContent = `${status.display.cols} × ${status.display.rows}`;
   const phone = $("phonePill");
@@ -879,6 +879,12 @@ function renderWidgets() {
     const use = node("button", "btn", t("widgets.use"));
     use.type = "button";
     use.addEventListener("click", () => openCreateBoard(widget.id));
+    if ((widget.settings || []).length) {
+      const settings = node("button", "btn ghost", t("widgets.settings"));
+      settings.type = "button";
+      settings.addEventListener("click", () => editWidgetSettings(widget));
+      actions.append(settings);
+    }
     const test = node("button", "btn ghost", t("widgets.test"));
     test.type = "button";
     test.addEventListener("click", () => testWidget(widget));
@@ -923,6 +929,89 @@ async function testWidget(widget) {
     pre.textContent = t("widgets.error", { message: error.message });
     pre.classList.add("danger-text");
   }
+}
+
+function settingField(setting, index) {
+  const row = node("div", "form-row setting-row");
+  const input = document.createElement(setting.type === "select" ? "select" : "input");
+  input.id = `widget-setting-${index}`;
+  let control = input;
+  if (setting.type === "select") {
+    for (const option of setting.options || []) {
+      const item = node("option", "", option);
+      item.value = option;
+      input.append(item);
+    }
+    input.value = setting.value;
+  } else if (setting.type === "range") {
+    input.type = "range";
+    input.min = setting.min ?? 0;
+    input.max = setting.max ?? 1;
+    input.step = setting.step ?? 0.1;
+    input.value = setting.value;
+    const output = node("output", "setting-value", String(setting.value));
+    input.addEventListener("input", () => {
+      output.textContent = input.value;
+    });
+    control = node("div", "setting-range");
+    control.append(input, output);
+  } else if (setting.type === "number") {
+    input.type = "number";
+    if (setting.min !== undefined) input.min = setting.min;
+    if (setting.max !== undefined) input.max = setting.max;
+    if (setting.step !== undefined) input.step = setting.step;
+    input.value = setting.value;
+  } else if (setting.type === "toggle") {
+    input.type = "checkbox";
+    input.checked = Boolean(setting.value);
+  } else {
+    input.type = "text";
+    input.value = setting.value;
+  }
+  const label = node("label", "", setting.label || setting.key);
+  label.htmlFor = input.id;
+  row.append(label, control);
+  if (setting.help) row.append(node("p", "muted setting-help", setting.help));
+  return { row, input, setting };
+}
+
+function editWidgetSettings(widget) {
+  const content = node("div", "form-stack");
+  const controls = [];
+  for (const [index, setting] of (widget.settings || []).entries()) {
+    const field = settingField(setting, index);
+    controls.push(field);
+    content.append(field.row);
+  }
+  let dialog;
+  dialog = showDialog({
+    title: t("widgets.settingsTitle", { name: widget.name }),
+    description: widget.source === "bundled" ? t("widgets.settingsBundled") : widget.description || widget.command,
+    content,
+    actions: [
+      { label: t("common.cancel"), onClick: () => dialog.close() },
+      {
+        label: t("common.save"),
+        kind: "primary",
+        onClick: async (close) => {
+          const values = {};
+          for (const { setting, input } of controls) {
+            if (setting.type === "toggle") values[setting.key] = input.checked;
+            else if (setting.type === "range" || setting.type === "number") values[setting.key] = Number(input.value);
+            else values[setting.key] = input.value;
+          }
+          try {
+            await api.post(`/api/widgets/${encodeURIComponent(widget.id)}/settings`, { settings: values });
+            close();
+            toast(t("widgets.settingsSaved"), "success");
+            await loadWidgets();
+          } catch (error) {
+            toast(t("widgets.settingsError", { message: error.message }), "error");
+          }
+        },
+      },
+    ],
+  });
 }
 
 /* --- pairing and help ---------------------------------------------------- */

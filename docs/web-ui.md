@@ -56,6 +56,12 @@ It shows the default size, interval, timeout and optional description. **Test**
 runs the script once at the current display size; **Use in board** opens the new
 board dialog with that widget selected.
 
+Widgets can declare editable values with `[[settings]]` blocks in `widget.toml`.
+The card then gets a **Settings** button with selects, toggles, text/number
+fields and sliders. Saving writes to the widget manifest; editing a bundled
+widget first copies it to `custom-widgets/`. See
+[widgets.md](widgets.md#settings-in-the-web-ui).
+
 `music` needs `playerctl`, `music-art` needs `playerctl` and Pillow, and
 `ttyclock` needs `tty-clock` and `tmux`. Missing optional tools are documented in
 the widget guide and do not break the rest of a board.

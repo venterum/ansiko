@@ -77,6 +77,17 @@ $EDITOR ansiko.local.toml         # set a long token and your LAN address
 ansiko serve --host 192.168.1.103
 ```
 
+The daemon prints the dashboard URL on startup. To keep it running as a user
+service:
+
+```sh
+ansiko install-systemd
+```
+
+It writes `~/.config/systemd/user/ansiko.service`, enables it and starts it. Set a
+stable token in `ansiko.local.toml` first; pass `--config PATH` to use another
+file, or `--no-start` to only enable it.
+
 **2. Phone** — build and install the APK:
 
 ```sh
@@ -111,7 +122,7 @@ Everything is driven from the browser at `http://<host>:<port>/` — no TUI, no 
 | **Visual editor** | drag, eight resize handles, 5% snapping, collision checks, undo/redo, keyboard nudge |
 | **Presets** | automatic packing, equal columns, grid, vertical stack |
 | **Raw TOML** | edit the board source with line/column validation |
-| **Widget catalog** | sizes, intervals, timeouts, single test run |
+| **Widget catalog** | sizes, intervals, timeouts, editable settings with sliders and toggles, single test run |
 | **Live monitor** | the exact byte stream the phone receives, with a full-screen mode |
 | **Pairing** | a QR code containing host, port and token |
 

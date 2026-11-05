@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ansiko"
-version = "0.2.0"
+version = "0.3.0"
 description = "Stream a Linux PTY or board to a dumb Android display"
 readme = { text = "Ansiko turns an old Android phone into a read-only glass terminal for a Linux machine. Install the server with `uv tool install ./server`, or run it from a checkout. The daemon serves a web dashboard and the phone connects over WebSocket.", content-type = "text/markdown" }
 requires-python = ">=3.11"
