@@ -231,6 +231,14 @@ const dictionaries = {
     "editor.frameInherit": "Use board setting",
     "editor.frameOn": "Frame this cell",
     "editor.frameOff": "No frame",
+    "editor.align": "Horizontal align",
+    "editor.alignLeft": "Left",
+    "editor.alignCenter": "Center",
+    "editor.alignRight": "Right",
+    "editor.valign": "Vertical align",
+    "editor.valignTop": "Top",
+    "editor.valignCenter": "Center",
+    "editor.valignBottom": "Bottom",
     "editor.duplicateCell": "Duplicate",
     "editor.deleteCell": "Delete",
     "editor.nudgeUp": "Nudge up",
@@ -308,7 +316,7 @@ x = 0.5
 y = 0.0
 width = 0.5
 height = 1.0</pre>
-      <p><code>x</code>, <code>y</code>, <code>width</code> and <code>height</code> are fractions from 0 to 1. A cell may set <code>frame = false</code> to override the board frame. The widget receives its inner size in <code>ANSIKO_COLS</code> and <code>ANSIKO_ROWS</code>.</p>
+      <p><code>x</code>, <code>y</code>, <code>width</code> and <code>height</code> are fractions from 0 to 1. A cell may set <code>frame = false</code> to override the board frame, and <code>align</code> (left/center/right) or <code>valign</code> (top/center/bottom) to put the output inside its area. The widget receives its inner size in <code>ANSIKO_COLS</code> and <code>ANSIKO_ROWS</code>.</p>
       <p>In the visual editor, Free layout is draggable. Auto layout is read-only but can be converted with one click.</p>
     `,
     "help.article.widgets": `
@@ -568,6 +576,14 @@ timeout     = 2</pre>
     "editor.frameInherit": "Как у доски",
     "editor.frameOn": "Рамка ячейки",
     "editor.frameOff": "Без рамки",
+    "editor.align": "Выравнивание",
+    "editor.alignLeft": "Влево",
+    "editor.alignCenter": "По центру",
+    "editor.alignRight": "Вправо",
+    "editor.valign": "По вертикали",
+    "editor.valignTop": "Вверх",
+    "editor.valignCenter": "По центру",
+    "editor.valignBottom": "Вниз",
     "editor.duplicateCell": "Дублировать",
     "editor.deleteCell": "Удалить",
     "editor.nudgeUp": "Сдвинуть вверх",
@@ -645,7 +661,7 @@ x = 0.5
 y = 0.0
 width = 0.5
 height = 1.0</pre>
-      <p><code>x</code>, <code>y</code>, <code>width</code> и <code>height</code> — дроби от 0 до 1. Ячейка может задать <code>frame = false</code>, чтобы отменить рамку доски. Виджет получает внутренний размер в <code>ANSIKO_COLS</code> и <code>ANSIKO_ROWS</code>.</p>
+      <p><code>x</code>, <code>y</code>, <code>width</code> и <code>height</code> — дроби от 0 до 1. Ячейка может задать <code>frame = false</code>, чтобы отменить рамку доски, а также <code>align</code> (left/center/right) или <code>valign</code> (top/center/bottom), чтобы разместить вывод внутри области. Виджет получает внутренний размер в <code>ANSIKO_COLS</code> и <code>ANSIKO_ROWS</code>.</p>
       <p>В визуальном редакторе свободная раскладка перетаскивается. Авто-раскладка только для чтения, но переводится в свободную одним нажатием.</p>
     `,
     "help.article.widgets": `

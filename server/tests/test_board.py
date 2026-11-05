@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
 from aiohttp import WSMsgType
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -104,6 +105,42 @@ def test_compose_draws_title_frame():
     assert "┌ clock" in frame
     assert "12:34" in frame
     assert "└" in frame
+
+
+def test_compose_aligns_output_in_cell():
+    cell = Cell(widget("clock", 6, 3), align="center", valign="center")
+    cell.output = "ab"
+    frame = compose([cell], rows=10).decode()
+    assert "\x1b[2;3Hab" in frame
+
+    cell = Cell(widget("clock", 6, 3), align="right", valign="bottom")
+    cell.output = "\x1b[36mab\x1b[0m"
+    frame = compose([cell], rows=10).decode()
+    assert "\x1b[3;5H\x1b[36mab\x1b[0m" in frame
+
+
+def test_cell_alignment_roundtrip(tmp_path):
+    widgets_dir = tmp_path / "widgets"
+    write_widget(widgets_dir / "clock", "printf 'clock\\n'")
+    source = (
+        'name = "Desk"\n'
+        "[[cells]]\n"
+        'widget = "clock"\n'
+        "x = 0.0\ny = 0.0\nwidth = 1.0\nheight = 1.0\n"
+        'align = "center"\nvalign = "bottom"\n'
+    )
+    spec = parse_board_source(source, "desk", widgets_dir)
+    assert spec.regions is not None
+    assert (spec.regions[0].align, spec.regions[0].valign) == ("center", "bottom")
+
+    model = board_to_model(spec, "desk")
+    assert model["cells"][0]["align"] == "center"
+    dumped = source_from_model(model)
+    assert 'align = "center"' in dumped
+    assert 'valign = "bottom"' in dumped
+
+    with pytest.raises(ValueError):
+        parse_board_source(source.replace("center", "middle"), "desk", widgets_dir)
 
 
 def test_explicit_fractional_cells(tmp_path):

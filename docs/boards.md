@@ -63,6 +63,23 @@ height = 0.3
 frame = false
 ```
 
+The widget's text is placed in the top-left corner by default. `align` and
+`valign` move the whole output block inside the cell's content area:
+
+```toml
+[[cells]]
+widget = "clock"
+x = 0.0
+y = 0.0
+width = 1.0
+height = 0.4
+align = "center"   # left (default), center, right
+valign = "center"  # top (default), center, bottom
+```
+
+Centering uses the visible width, so ANSI colors and wide glyphs do not
+shift the block.
+
 ## Visual editor
 
 Open a board in **Boards** and use the **Layout** tab.
@@ -74,8 +91,8 @@ Open a board in **Boards** and use the **Layout** tab.
 - **Free** — drag cells, resize from any of the eight handles, or use the
   inspector fields. Cells snap to a 5% grid and cannot overlap.
 - **Quick layout** — equal columns, a grid, or a vertical stack.
-- **Inspector** — exact percentages, frame override, duplicate, delete and
-  arrow-key nudge.
+- **Inspector** — exact percentages, frame override, horizontal and vertical
+  alignment, duplicate, delete and arrow-key nudge.
 - **Monitor** — a temporary board streams the same ANSI frames as the
   phone. Use **Preview** or the expand icon (or press `P`) for a full-screen
   terminal; `Esc` closes it. It is not a screenshot; colors and cursor

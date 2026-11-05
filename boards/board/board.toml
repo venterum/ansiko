@@ -11,9 +11,9 @@ height = 0.2
 [[cells]]
 widget = "ttyclock"
 x = 0.05
-y = 0.05
+y = 0.1
 width = 0.6
-height = 0.6
+height = 0.5
 
 [[cells]]
 widget = "sysinfo"
@@ -35,3 +35,12 @@ x = 0.65
 y = 0.05
 width = 0.3
 height = 0.75
+
+[[cells]]
+widget = "currency"
+x = 0.05
+y = 0.05
+width = 0.6
+height = 0.05
+align = "center"
+valign = "center"

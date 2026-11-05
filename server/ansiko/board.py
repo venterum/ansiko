@@ -34,6 +34,8 @@ BOARD_MANIFEST = "board.toml"
 BORDER = "\x1b[36m"
 RESET = "\x1b[0m"
 TEMPLATES = ("auto", "single", "columns", "grid")
+ALIGNS = ("left", "center", "right")
+VALIGNS = ("top", "center", "bottom")
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,8 @@ class Region:
     height: float
     frame: bool
     frame_override: bool | None = None
+    align: str = "left"
+    valign: str = "top"
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,8 @@ class Cell:
     width: int = 0
     height: int = 0
     frame: bool = False
+    align: str = "left"
+    valign: str = "top"
     output: str = ""
     error: str | None = None
 
@@ -111,6 +117,48 @@ def place_regions(
         cell.x, cell.y = x0, y0
         cell.width, cell.height = x1 - x0, y1 - y0
         cell.frame = region.frame
+        cell.align = region.align
+        cell.valign = region.valign
+
+
+def _ansi_end(text: str, i: int) -> int | None:
+    """End of the ANSI sequence at `text[i]`, or None if there is no sequence there."""
+    if text[i] != "\x1b" or i + 1 >= len(text):
+        return None
+    if text[i + 1] == "[":
+        j = i + 2
+        while j < len(text) and not ("@" <= text[j] <= "~"):
+            j += 1
+        return min(j + 1, len(text))
+    if text[i + 1] == "]":
+        j = i + 2
+        while j < len(text):
+            if text[j] == "\a":
+                return j + 1
+            if text[j] == "\x1b" and j + 1 < len(text) and text[j + 1] == "\\":
+                return j + 2
+            j += 1
+        return j
+    return None
+
+
+def _char_width(ch: str) -> int:
+    if unicodedata.combining(ch):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def _text_width(text: str) -> int:
+    used = 0
+    i = 0
+    while i < len(text):
+        end = _ansi_end(text, i)
+        if end is not None:
+            i = end
+            continue
+        used += _char_width(text[i])
+        i += 1
+    return used
 
 
 def _clip(text: str, width: int) -> str:
@@ -119,39 +167,16 @@ def _clip(text: str, width: int) -> str:
     used = 0
     i = 0
     while i < len(text) and used < width:
-        ch = text[i]
-        if ch == "\x1b" and i + 1 < len(text):
-            if text[i + 1] == "[":
-                j = i + 2
-                while j < len(text) and not ("@" <= text[j] <= "~"):
-                    j += 1
-                j = min(j + 1, len(text))
-                out.append(text[i:j])
-                i = j
-                continue
-            if text[i + 1] == "]":
-                j = i + 2
-                while j < len(text):
-                    if text[j] == "\a":
-                        j += 1
-                        break
-                    if text[j] == "\x1b" and j + 1 < len(text) and text[j + 1] == "\\":
-                        j += 2
-                        break
-                    j += 1
-                out.append(text[i:j])
-                i = j
-                continue
+        end = _ansi_end(text, i)
+        if end is not None:
+            out.append(text[i:end])
+            i = end
+            continue
 
-        if unicodedata.combining(ch):
-            cell_width = 0
-        elif unicodedata.east_asian_width(ch) in ("W", "F"):
-            cell_width = 2
-        else:
-            cell_width = 1
+        cell_width = _char_width(text[i])
         if used + cell_width > width:
             break
-        out.append(ch)
+        out.append(text[i])
         used += cell_width
         i += 1
     return "".join(out)
@@ -197,9 +222,21 @@ def compose(cells: Sequence[Cell], rows: int) -> bytes:
         content_y = cell.y + (1 if cell.framed else 0)
         max_lines = max(0, min(cell.content_height, rows - content_y))
         lines = text.splitlines()[:max_lines]
+        if cell.valign == "bottom":
+            content_y += max(0, max_lines - len(lines))
+        elif cell.valign == "center":
+            content_y += max(0, (max_lines - len(lines)) // 2)
         for index, line in enumerate(lines):
-            chunks.append(_cursor(content_y + index + 1, content_x + 1))
-            chunks.append(_clip(line.replace("\r", ""), cell.content_width).encode())
+            line = line.replace("\r", "")
+            padding = cell.content_width - _text_width(line)
+            if cell.align == "right":
+                padding = max(0, padding)
+            elif cell.align == "center":
+                padding = max(0, padding // 2)
+            else:
+                padding = 0
+            chunks.append(_cursor(content_y + index + 1, content_x + padding + 1))
+            chunks.append(_clip(line, cell.content_width).encode())
             chunks.append(RESET.encode())
     return b"".join(chunks)
 
@@ -261,11 +298,19 @@ def _board_data(
             overridden = entry.get("frame")
             if overridden is not None and not isinstance(overridden, bool):
                 raise TypeError("board cell: 'frame' must be a boolean")
+            align = entry.get("align", "left")
+            if align not in ALIGNS:
+                raise ValueError(f"board cell: 'align' must be one of {ALIGNS}")
+            valign = entry.get("valign", "top")
+            if valign not in VALIGNS:
+                raise ValueError(f"board cell: 'valign' must be one of {VALIGNS}")
             cell_frame = frame if overridden is None else overridden
             widgets.append(
                 resolve_widget(safe_name(widget_name), widgets_dir, custom_widgets_dir)
             )
-            regions.append(Region(x, y, width, height, cell_frame, overridden))
+            regions.append(
+                Region(x, y, width, height, cell_frame, overridden, align, valign)
+            )
         return BoardSpec(title.strip(), widgets, regions, frame)
 
     names = data.get("widgets")
@@ -330,6 +375,8 @@ def board_to_model(spec: BoardSpec, folder: str | None = None) -> dict:
                 "height": region.height,
                 "frame": region.frame,
                 "frame_override": region.frame_override,
+                "align": region.align,
+                "valign": region.valign,
             }
             for widget, region in zip(spec.widgets, spec.regions, strict=True)
         ]
@@ -403,6 +450,16 @@ def source_from_model(model: dict) -> str:
         cell_frame = cell.get("frame")
         if isinstance(cell_frame, bool) and cell_frame != frame:
             lines.append(f"frame = {'true' if cell_frame else 'false'}")
+        align = cell.get("align", "left")
+        if align != "left":
+            if align not in ALIGNS:
+                raise ValueError(f"board cell: 'align' must be one of {ALIGNS}")
+            lines.append(f"align = {_toml_string(align)}")
+        valign = cell.get("valign", "top")
+        if valign != "top":
+            if valign not in VALIGNS:
+                raise ValueError(f"board cell: 'valign' must be one of {VALIGNS}")
+            lines.append(f"valign = {_toml_string(valign)}")
     return "\n".join(lines) + "\n"
 
 

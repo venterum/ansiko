@@ -70,6 +70,12 @@ export function serializeModel(model) {
     if (typeof cell.frame === "boolean" && cell.frame !== model.frame) {
       lines.push(`frame = ${cell.frame ? "true" : "false"}`);
     }
+    if (cell.align && cell.align !== "left") {
+      lines.push(`align = ${tomlString(cell.align)}`);
+    }
+    if (cell.valign && cell.valign !== "top") {
+      lines.push(`valign = ${tomlString(cell.valign)}`);
+    }
   }
   return `${lines.join("\n")}\n`;
 }
@@ -87,6 +93,8 @@ function normalizeModel(model, folder, preserveFrames = false) {
     frame: preserveFrames && typeof cell.frame === "boolean"
       ? cell.frame
       : (typeof cell.frame_override === "boolean" ? cell.frame_override : null),
+    align: cell.align === "center" || cell.align === "right" ? cell.align : "left",
+    valign: cell.valign === "center" || cell.valign === "bottom" ? cell.valign : "top",
   }));
   return {
     folder,
@@ -111,6 +119,8 @@ function payloadOf(model) {
       width: round(cell.width),
       height: round(cell.height),
       frame: typeof cell.frame === "boolean" ? cell.frame : null,
+      align: cell.align || "left",
+      valign: cell.valign || "top",
     })),
   };
 }
@@ -139,6 +149,8 @@ function packCells(model, widgets, cols, rows) {
       width: Math.min(fw / cols, Math.max(GRID, 1 - x / cols)),
       height: Math.min(fh / rows, Math.max(GRID, 1 - y / rows)),
       frame: null,
+      align: "left",
+      valign: "top",
       offscreen: y >= rows,
     });
     x += fw + 1;
@@ -1133,6 +1145,29 @@ export class BoardEditor {
     });
     frameField.append(frameSelect);
     grid.append(frameField);
+
+    for (const [key, title, values] of [
+      ["align", "editor.align", [["left", "editor.alignLeft"], ["center", "editor.alignCenter"], ["right", "editor.alignRight"]]],
+      ["valign", "editor.valign", [["top", "editor.valignTop"], ["center", "editor.valignCenter"], ["bottom", "editor.valignBottom"]]],
+    ]) {
+      const field = element("label", "prop-field");
+      field.append(element("span", "", t(title)));
+      const select = document.createElement("select");
+      for (const [value, label] of values) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = t(label);
+        select.append(option);
+      }
+      select.value = cell[key] || values[0][0];
+      select.addEventListener("change", () => {
+        const before = this.payload();
+        cell[key] = select.value;
+        this.commit(before);
+      });
+      field.append(select);
+      grid.append(field);
+    }
     body.append(grid);
 
     const nudge = element("div", "nudge");
